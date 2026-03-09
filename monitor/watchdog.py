@@ -31,7 +31,10 @@ except ImportError:
 
 
 class Watchdog:
-    """系统监控看门狗"""
+    """系统监控看门狗。
+
+    它周期性检查系统是否处于“健康状态”，并在发现异常时告警。
+    """
 
     def __init__(self,
                  interval_sec: int = 30,
@@ -64,6 +67,7 @@ class Watchdog:
     # ------------------------------------------------------------------ 控制
 
     def start(self) -> None:
+        """启动看门狗后台线程。"""
         self._running = True
         self._thread = threading.Thread(
             target=self._run_loop, daemon=True, name="watchdog"
@@ -72,6 +76,7 @@ class Watchdog:
         logger.info("Watchdog: 已启动（检查间隔 %ds）", self._interval)
 
     def stop(self) -> None:
+        """停止看门狗。"""
         self._running = False
         logger.info("Watchdog: 已停止")
 
@@ -124,7 +129,7 @@ class Watchdog:
         return True
 
     def check_system_resources(self) -> dict:
-        """检查系统资源"""
+        """检查 CPU 和内存占用情况。"""
         result = {"cpu": 0.0, "memory": 0.0}
         if not _PSUTIL:
             return result
@@ -193,6 +198,7 @@ class Watchdog:
     # ------------------------------------------------------------------ Private
 
     def _run_loop(self) -> None:
+        """看门狗主循环。"""
         while self._running:
             try:
                 self.check_strategy_alive()
@@ -229,6 +235,7 @@ class Watchdog:
 
     @staticmethod
     def _is_trading_time() -> bool:
+        """粗略判断当前是否处于交易时段。"""
         t = datetime.now().strftime("%H:%M")
         return ("09:25" <= t <= "11:35") or ("12:55" <= t <= "15:05")
 

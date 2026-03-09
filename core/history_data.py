@@ -30,7 +30,13 @@ except ImportError:
 
 
 class HistoryDataManager:
-    """历史行情数据获取"""
+    """历史行情数据获取。
+
+    与实时行情模块不同，这里专门处理“离线历史数据”：
+    - 可先下载到本地缓存
+    - 再从缓存读取为 DataFrame
+    - 也保留了“下载+读取”一体化兼容接口
+    """
 
     # 股票代码转换规则
     _SH_PREFIXES = ("6", "5")   # 上海：6开头（主板）、5开头（ETF）
@@ -46,7 +52,11 @@ class HistoryDataManager:
         incrementally=None,
         show_progress: bool = True,
     ) -> bool:
-        """批量下载历史行情到本地缓存。"""
+        """批量下载历史行情到本地缓存。
+
+        这个函数只负责“下载”，不负责返回 DataFrame。
+        这样做的好处是下载和读取可以解耦，便于重复使用本地缓存。
+        """
         if not stock_list:
             return True
 
@@ -63,6 +73,7 @@ class HistoryDataManager:
         state = {"finished": 0}
 
         def _on_progress(data: dict) -> None:
+            """包装 xtquant 的进度回调，顺手更新进度条。"""
             finished = int(data.get("finished", 0) or 0)
             delta = max(0, finished - state["finished"])
             state["finished"] = finished
@@ -106,7 +117,12 @@ class HistoryDataManager:
         field_list: Optional[List[str]] = None,
         fill_data: bool = True,
     ) -> Dict[str, pd.DataFrame]:
-        """从本地缓存读取历史行情。"""
+        """从本地缓存读取历史行情。
+
+        这里不会主动下载数据，因此更适合：
+        - 已提前下载过历史数据的场景
+        - 重复分析同一时间段数据的场景
+        """
         if not stock_list:
             return {}
 
@@ -129,6 +145,7 @@ class HistoryDataManager:
 
             result: Dict[str, pd.DataFrame] = {c: pd.DataFrame() for c in stock_list}
             for xt_code, df in raw.items():
+                # 读回来的 key 是 xtquant 代码格式，这里转回项目统一的 6 位代码。
                 code = self.xt_code_to_stock(xt_code)
                 result[code] = df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()
 
@@ -179,7 +196,7 @@ class HistoryDataManager:
 
     @classmethod
     def stock_code_to_xt(cls, code: str) -> str:
-        """6位数字代码 → xtquant 格式（含后缀）"""
+        """把 6 位证券代码转换为 xtquant 使用的市场后缀格式。"""
         code = str(code).strip().zfill(6)
         if code.startswith(cls._SH_PREFIXES):
             return f"{code}.SH"
@@ -187,7 +204,7 @@ class HistoryDataManager:
 
     @classmethod
     def xt_code_to_stock(cls, xt_code: str) -> str:
-        """xtquant 格式 → 6位数字代码"""
+        """把 xtquant 代码格式还原为项目内部 6 位证券代码。"""
         return xt_code.split(".")[0] if "." in xt_code else xt_code
 
 

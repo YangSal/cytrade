@@ -34,12 +34,17 @@ except ImportError:
 class _SummaryFilter(logging.Filter):
     """摘要模式过滤器：只放行含 [ORDER] / [TRADE] 标签的日志"""
     def filter(self, record: logging.LogRecord) -> bool:
+        """只允许订单与成交摘要日志通过。"""
         msg = record.getMessage()
         return "[ORDER]" in msg or "[TRADE]" in msg
 
 
 class LogManager:
-    """日志管理器（单例）"""
+    """日志管理器（单例）。
+
+    整个项目只需要一套日志配置，因此这里使用单例模式，
+    防止多个模块重复创建 handler，导致日志重复输出。
+    """
 
     _instance: Optional["LogManager"] = None
     _lock = threading.Lock()
@@ -50,6 +55,7 @@ class LogManager:
     DEBUG_LOG = "debug"      # 调试
 
     def __new__(cls, *args, **kwargs):
+        """确保全局只创建一个 ``LogManager`` 实例。"""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
@@ -58,6 +64,7 @@ class LogManager:
 
     def __init__(self, log_dir: str = "./logs", max_days: int = 30,
                  level: str = "INFO", summary_mode: bool = False):
+        """初始化日志系统配置。"""
         if self._initialized:
             return
         self._initialized = True
@@ -81,7 +88,7 @@ class LogManager:
         return self._loggers[name]
 
     def setup_logging(self) -> None:
-        """初始化日志系统"""
+        """初始化默认日志分类。"""
         for name in [self.TRADE_LOG, self.SYSTEM_LOG, self.DEBUG_LOG]:
             self._loggers[name] = self._create_logger(name)
         # 默认 logger 代理 system
@@ -106,7 +113,7 @@ class LogManager:
                         hdlr.removeFilter(self._summary_filter)
 
     def cleanup_old_logs(self) -> None:
-        """清理超过 max_days 的日志文件并压缩前日日志"""
+        """清理超过保存期限的日志，并压缩旧日志。"""
         cutoff = datetime.now() - timedelta(days=self._max_days)
         for fname in os.listdir(self._log_dir):
             fpath = os.path.join(self._log_dir, fname)
@@ -125,6 +132,7 @@ class LogManager:
     # ------------------------------------------------------------------
 
     def _create_logger(self, name: str) -> logging.Logger:
+        """为指定分类创建 logger 与 handler。"""
         lgr = logging.getLogger(f"cytrade.{name}")
         lgr.setLevel(getattr(logging, self._level, logging.INFO))
         lgr.propagate = False
@@ -167,6 +175,7 @@ class LogManager:
 
     @staticmethod
     def _compress_log(fpath: str) -> None:
+        """把旧日志压缩成 ``.gz`` 文件，减少磁盘占用。"""
         gz_path = fpath + ".gz"
         if os.path.exists(gz_path):
             return

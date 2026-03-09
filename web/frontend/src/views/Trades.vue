@@ -33,11 +33,13 @@ const trades = ref([])
 let timer = null
 
 async function load() {
+  // 先从后端接口取历史/持久化成交，再和 WebSocket 最近推送的数据合并。
   const res = await axios.get('/api/trades')
   const apiTrades = Array.isArray(res.data) ? res.data : []
   const realtime = Array.isArray(store.recentTrades) ? store.recentTrades : []
   const merged = [...realtime, ...apiTrades]
   const seen = new Set()
+  // 使用复合键去重，避免同一笔成交同时出现在轮询结果和实时推送里。
   trades.value = merged.filter(item => {
     const key = `${item.trade_id || ''}_${item.xt_order_id || 0}_${item.traded_time || item.time || ''}`
     if (seen.has(key)) return false
@@ -46,15 +48,18 @@ async function load() {
   })
 }
 
+// 成交金额和费用保留两位小数，成交价保留三位小数。
 const fmt2 = (_, __, v) => typeof v === 'number' ? v.toFixed(2) : v
 const fmt3 = (_, __, v) => typeof v === 'number' ? v.toFixed(3) : v
 
 onMounted(() => {
+  // 首次加载后定时轮询，保持页面数据新鲜。
   load()
   timer = setInterval(load, 3000)
 })
 
 onUnmounted(() => {
+  // 离开页面时清理轮询定时器。
   if (timer) clearInterval(timer)
 })
 </script>

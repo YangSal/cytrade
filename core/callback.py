@@ -27,7 +27,14 @@ logger = get_logger("system")
 
 
 class MyXtQuantTraderCallback(XtQuantTraderCallback):
-    """XtQuant 统一回调处理器"""
+    """XtQuant 统一回调处理器。
+
+    这个类是“外部交易接口”和“内部业务模块”之间的翻译层：
+    - 接收 xtquant 的原始回调对象
+    - 抽取关键字段
+    - 转换成项目内部统一的数据格式
+    - 分发给订单管理器或连接管理器
+    """
 
     def __init__(self, order_manager=None, connection_manager=None):
         super().__init__()
@@ -35,14 +42,17 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         self._conn_mgr = connection_manager
 
     def set_order_manager(self, order_manager) -> None:
+        """运行时替换订单管理器引用。"""
         self._order_mgr = order_manager
 
     def set_connection_manager(self, connection_manager) -> None:
+        """运行时替换连接管理器引用。"""
         self._conn_mgr = connection_manager
 
     # ------------------------------------------------------------------ 回调
 
     def on_disconnected(self) -> None:
+        """连接断开时通知连接管理器启动重连。"""
         try:
             logger.warning("[Callback] on_disconnected — 触发重连")
             if self._conn_mgr:
@@ -55,6 +65,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         try:
             if not self._order_mgr:
                 return
+            # xtquant 返回的是数字状态码，先映射成内部枚举，再交给订单管理器。
             status = self._map_order_status(order.order_status)
             self._order_mgr.update_order_status(
                 xt_order_id=order.order_id,
@@ -72,6 +83,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
         try:
             if not self._order_mgr:
                 return
+            # 先把 XtTrade 对象拆成普通字典，便于后续统一处理和扩展字段。
             trade_info = {
                 "account_type": int(getattr(trade, "account_type", 0) or 0),
                 "account_id": str(getattr(trade, "account_id", "") or ""),
@@ -90,6 +102,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
                 "offset_flag": int(getattr(trade, "offset_flag", 0) or 0),
                 "commission": 0.0,
             }
+            # 再补齐项目内部常用的统一字段名，降低后续业务层理解成本。
             trade_info.update({
                 "trade_id": trade_info["traded_id"],
                 "xt_order_id": trade_info["order_id"],
@@ -149,7 +162,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
 
     @staticmethod
     def _map_order_status(xt_status) -> OrderStatus:
-        """将 xtquant 委托状态映射为内部 OrderStatus"""
+        """将 xtquant 委托状态映射为内部 ``OrderStatus``。"""
         mapping = {
             48: OrderStatus.UNREPORTED,
             49: OrderStatus.WAIT_REPORTING,
@@ -167,7 +180,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
 
     @staticmethod
     def _xt_to_code(xt_code: str) -> str:
-        """xtquant 格式代码 → 6位数字代码"""
+        """把 xtquant 代码格式转换为项目内部 6 位证券代码。"""
         return xt_code.split(".")[0] if "." in xt_code else xt_code
 
 

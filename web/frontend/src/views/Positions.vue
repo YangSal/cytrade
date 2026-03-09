@@ -28,11 +28,15 @@ import axios from 'axios'
 
 const positions = ref([])
 async function load() {
+  // 定期从后端拉取持仓快照，刷新表格展示。
   const res = await axios.get('/api/positions')
   positions.value = res.data
 }
+// 不同字段按不同精度格式化，方便展示。
 const fmt3 = (_, __, v) => typeof v === 'number' ? v.toFixed(3) : v
 const fmt2 = (_, __, v) => typeof v === 'number' ? v.toFixed(2) : v
 const fmt0 = (_, __, v) => typeof v === 'number' ? v.toFixed(0) : v
-onMounted(() => { load(); setInterval(load, 3000) })
+onMounted(() => {
+  load(); setInterval(load, 3000)
+})
 </script>

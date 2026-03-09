@@ -1,4 +1,9 @@
-"""交易相关数据模型（Order、TradeRecord）"""
+"""交易相关数据模型（``Order``、``TradeRecord``）。
+
+这些数据类是交易链路的基础载体：
+- ``Order`` 表示“委托”
+- ``TradeRecord`` 表示“成交”
+"""
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -44,7 +49,7 @@ class Order:
         )
 
     def remaining_quantity(self) -> int:
-        """未成交数量"""
+        """返回还剩多少数量尚未成交。"""
         return self.quantity - self.filled_quantity
 
 

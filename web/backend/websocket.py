@@ -33,19 +33,24 @@ else:
 
 
 class WebSocketManager:
-    """WebSocket 连接管理器"""
+    """WebSocket 连接管理器。
+
+    负责维护所有前端实时连接，并向它们广播行情、订单、持仓、成交更新。
+    """
 
     def __init__(self):
         self._connections: Set = set()
         self._lock = threading.Lock()
 
     async def connect(self, ws) -> None:
+        """接受新的 WebSocket 连接并登记。"""
         await ws.accept()
         with self._lock:
             self._connections.add(ws)
         logger.info("WebSocket: 新连接，当前 %d 个", len(self._connections))
 
     def disconnect(self, ws) -> None:
+        """移除已断开的 WebSocket 连接。"""
         with self._lock:
             self._connections.discard(ws)
         logger.info("WebSocket: 断开连接，当前 %d 个", len(self._connections))
@@ -69,7 +74,7 @@ class WebSocketManager:
                 self._connections -= dead
 
     def broadcast_sync(self, message: dict) -> None:
-        """从同步线程发送广播（自动创建 event loop）"""
+        """从同步线程发送广播（自动创建事件循环）。"""
         try:
             loop = asyncio.new_event_loop()
             loop.run_until_complete(self.broadcast(message))
@@ -152,6 +157,7 @@ if _FASTAPI and ws_router is not None:
 
     @ws_router.websocket("/ws/realtime")
     async def websocket_endpoint(websocket: WebSocket):
+        """WebSocket 实时推送端点。"""
         await _ws_manager.connect(websocket)
         try:
             while True:

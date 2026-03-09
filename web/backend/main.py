@@ -38,12 +38,14 @@ _ws_manager = None  # WebSocketManager
 
 
 def _get_frontend_dist_dir() -> Path:
+    """返回前端打包产物目录。"""
     return Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 
 def init_app_context(strategy_runner=None, position_manager=None,
                      order_manager=None, data_manager=None,
                      connection_manager=None, trade_executor=None):
+    """把主程序创建的核心对象注入到 Web 层全局上下文中。"""
     global _strategy_runner, _position_manager, _order_manager
     global _data_manager, _connection_manager, _trade_executor
     _strategy_runner = strategy_runner
@@ -57,6 +59,7 @@ def init_app_context(strategy_runner=None, position_manager=None,
 # ---- App 工厂 -------------------------------------------------------
 
 def create_app():
+    """创建并配置 FastAPI 应用实例。"""
     if not _FASTAPI:
         raise ImportError("fastapi 未安装，请执行: pip install fastapi uvicorn")
 
@@ -68,6 +71,7 @@ def create_app():
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        """FastAPI 生命周期钩子。"""
         logger.info("FastAPI: 应用启动")
         yield
         logger.info("FastAPI: 应用关闭")
@@ -110,10 +114,12 @@ def create_app():
 
         @app.get("/", include_in_schema=False)
         async def frontend_index():
+            """返回前端入口页面。"""
             return FileResponse(str(index_file))
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def frontend_spa(full_path: str):
+            """支持前端单页应用路由回退。"""
             if full_path.startswith(("api", "ws")):
                 raise HTTPException(status_code=404, detail="Not Found")
 
@@ -137,6 +143,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8080):
         app = create_app()
 
         def _run():
+            """真正执行 uvicorn 启动的线程入口。"""
             uvicorn.run(app, host=host, port=port, log_level="warning")
 
         t = threading.Thread(target=_run, daemon=True, name="web-server")

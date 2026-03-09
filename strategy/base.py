@@ -131,7 +131,11 @@ class BaseStrategy(ABC):
         return False
 
     def _execute_signal(self, signal: dict) -> None:
-        """根据信号执行交易"""
+        """根据信号执行交易。
+
+        策略只负责生成信号；真正的下单动作统一走交易执行器，
+        这样可以让“策略逻辑”和“交易接口细节”彻底分离。
+        """
         action = signal.get("action", "").upper()
         price = float(signal.get("price", 0))
         quantity = int(signal.get("quantity", 0))
@@ -260,10 +264,12 @@ class BaseStrategy(ABC):
         logger.info("Strategy[%s] 暂停", self.strategy_id[:8])
 
     def resume(self) -> None:
+        """恢复策略运行。"""
         self.status = StrategyStatus.RUNNING
         logger.info("Strategy[%s] 恢复", self.strategy_id[:8])
 
     def stop(self) -> None:
+        """停止策略运行。"""
         self.status = StrategyStatus.STOPPED
         logger.info("Strategy[%s] 停止", self.strategy_id[:8])
 
@@ -348,6 +354,7 @@ class BaseStrategy(ABC):
     # ------------------------------------------------------------------ Private
 
     def _track_order(self, order: Order) -> None:
+        """记录订单到待处理列表和历史列表。"""
         if order and order.is_active():
             self._pending_orders[order.order_uuid] = order
         self._orders_history.append(order)
@@ -374,6 +381,7 @@ class BaseStrategy(ABC):
             logger.warning(f"Strategy[{cls.strategy_name}] 同步类属性失败: {e}")
 
     def __repr__(self) -> str:
+        """返回便于调试的对象描述字符串。"""
         return (f"<{self.strategy_name}[{self.strategy_id[:8]}] "
                 f"stock={self.stock_code} status={self.status.value}>")
 

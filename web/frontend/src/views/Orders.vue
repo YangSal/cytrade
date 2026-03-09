@@ -40,13 +40,18 @@ import {
 
 const orders = ref([])
 async function load() {
+  // 订单页采用简单轮询，定期从后端取最新订单状态。
   const res = await axios.get('/api/orders')
   orders.value = res.data
 }
+// 统一把价格按三位小数展示，更适合股票价格阅读。
 const fmt3 = (_, __, v) => typeof v === 'number' ? v.toFixed(3) : v
 const directionText = orderDirectionText
 const typeText = orderTypeText
 const statusText = orderStatusText
 const tagType = orderStatusTagType
-onMounted(() => { load(); setInterval(load, 3000) })
+onMounted(() => {
+  // 进入页面先加载一次，再每 3 秒刷新一次。
+  load(); setInterval(load, 3000)
+})
 </script>

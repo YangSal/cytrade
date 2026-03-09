@@ -25,7 +25,14 @@ except ImportError:
 
 
 class DataSubscriptionManager:
-    """实时行情数据订阅管理"""
+    """实时行情数据订阅管理。
+
+    它的职责是：
+    - 维护当前订阅了哪些证券
+    - 接收 xtquant 推送的原始数据
+    - 转换成统一 ``TickData``
+    - 检查延迟并转发给策略层
+    """
 
     def __init__(self, latency_threshold_sec: float = 10.0,
                  default_period: SubscriptionPeriod | str = SubscriptionPeriod.TICK):
@@ -43,11 +50,12 @@ class DataSubscriptionManager:
     # ------------------------------------------------------------------ Public
 
     def subscribe_stocks(self, stock_codes: List[str], period: SubscriptionPeriod | str = "") -> None:
-        """订阅股票列表行情"""
+        """订阅一组股票的实时行情。"""
         period = self._normalize_period(period or self._default_period)
         xt_codes = [self._to_xt(c) for c in stock_codes]
         with self._lock:
             for code, xt_code in zip(stock_codes, xt_codes):
+                # 先在本地记录订阅意图，方便断线重连后恢复。
                 self._subscriptions[code] = period
 
         if not _XT_AVAILABLE:
@@ -59,6 +67,7 @@ class DataSubscriptionManager:
                 old_sub_id = self._subscription_ids.get(code)
                 if old_sub_id is not None:
                     try:
+                        # 同一只股票重复订阅前，先取消旧订阅，避免句柄泄漏。
                         xtdata.unsubscribe_quote(old_sub_id)
                     except Exception:
                         pass
@@ -74,7 +83,7 @@ class DataSubscriptionManager:
             logger.error("DataSubscription: 订阅失败: %s", e, exc_info=True)
 
     def unsubscribe_stocks(self, stock_codes: List[str]) -> None:
-        """取消订阅"""
+        """取消一组股票的实时订阅。"""
         xt_codes = [self._to_xt(c) for c in stock_codes]
         sub_ids = {}
         with self._lock:
@@ -94,7 +103,7 @@ class DataSubscriptionManager:
             logger.error("DataSubscription: 取消订阅失败: %s", e, exc_info=True)
 
     def subscribe_whole_market(self, period: SubscriptionPeriod | str = "") -> None:
-        """全市场订阅"""
+        """开启全市场订阅。"""
         period = self._normalize_period(period or self._default_period)
         self._whole_market = True
         if not _XT_AVAILABLE:
@@ -107,6 +116,7 @@ class DataSubscriptionManager:
             logger.error("DataSubscription: 全市场订阅失败: %s", e, exc_info=True)
 
     def get_subscription_list(self) -> List[str]:
+        """返回当前已记录的订阅股票代码列表。"""
         with self._lock:
             return list(self._subscriptions.keys())
 
@@ -115,7 +125,11 @@ class DataSubscriptionManager:
         self._data_callback = callback
 
     def resubscribe_all(self) -> None:
-        """重连后重建全量订阅"""
+        """重连后重建全量订阅。
+
+        这是连接恢复后的关键补偿逻辑。
+        没有这一步，系统虽然重新连上了，但策略可能再也收不到行情。
+        """
         with self._lock:
             subscriptions = dict(self._subscriptions)
             whole_market = self._whole_market
@@ -126,6 +140,7 @@ class DataSubscriptionManager:
         if subscriptions:
             period_groups: Dict[str, List[str]] = {}
             for code, period in subscriptions.items():
+                # 相同周期的订阅合并处理，避免重复逻辑。
                 period_groups.setdefault(period, []).append(code)
             for period, codes in period_groups.items():
                 self.subscribe_stocks(codes, period)
@@ -136,7 +151,10 @@ class DataSubscriptionManager:
                     len(subscriptions), whole_market)
 
     def start(self) -> None:
-        """启动订阅（阻塞；在独立线程中调用）"""
+        """启动订阅主循环。
+
+        xtquant 的 ``xtdata.run()`` 是阻塞式的，所以通常放到独立线程中运行。
+        """
         self._running = True
         logger.info("DataSubscription: 启动 xtdata.run()")
         if _XT_AVAILABLE:
@@ -150,13 +168,14 @@ class DataSubscriptionManager:
                 time.sleep(1)
 
     def stop(self) -> None:
+        """停止订阅主循环。"""
         self._running = False
         logger.info("DataSubscription: 已停止")
 
     # ------------------------------------------------------------------ Internal callback
 
     def _on_data(self, raw_data: dict) -> None:
-        """xtquant 推送回调 → 预处理 → 转发"""
+        """处理 xtquant 推送：解析、告警、再转发给策略层。"""
         try:
             recv_time = datetime.now()
             self._last_recv_time = recv_time
@@ -175,6 +194,7 @@ class DataSubscriptionManager:
                     )
 
             if ticks and self._data_callback:
+                # 只把已经标准化过的数据对象传给上层，降低策略层复杂度。
                 self._data_callback(ticks)
 
         except Exception as e:
@@ -183,7 +203,7 @@ class DataSubscriptionManager:
     # ------------------------------------------------------------------ Mock push (for testing)
 
     def push_mock_tick(self, code: str, price: float, volume: int = 1000) -> None:
-        """测试用：手动推送一条模拟 tick"""
+        """测试用：手动推送一条模拟 tick。"""
         recv_time = datetime.now()
         tick = TickData(
             stock_code=code,
@@ -211,6 +231,7 @@ class DataSubscriptionManager:
 
     @staticmethod
     def _normalize_period(period: SubscriptionPeriod | str) -> str:
+        """把订阅周期统一标准化为 xtquant 需要的字符串值。"""
         if isinstance(period, SubscriptionPeriod):
             return period.value
         try:
@@ -221,7 +242,7 @@ class DataSubscriptionManager:
 
     @staticmethod
     def _parse_tick(code: str, data: dict, recv_time: datetime) -> TickData:
-        """解析 xtquant 原始数据为 TickData"""
+        """把 xtquant 原始数据解析成统一 ``TickData`` 对象。"""
         # time 字段可能是时间戳（ms）或 datetime
         raw_time = data.get("time") or data.get("sysTime")
         data_time = recv_time
@@ -237,6 +258,7 @@ class DataSubscriptionManager:
                 pass
 
         def _get(key, default=0.0):
+            """统一处理字段缺失，避免到处写 ``None`` 判空。"""
             v = data.get(key)
             return v if v is not None else default
 

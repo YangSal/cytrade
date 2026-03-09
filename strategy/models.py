@@ -1,4 +1,9 @@
-"""策略数据模型"""
+"""策略数据模型。
+
+这些模型负责描述：
+- 策略创建时需要哪些配置
+- 策略持久化时需要保存哪些状态
+"""
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List

@@ -22,13 +22,16 @@ logger = get_logger("system")
 
 
 def _select_configs_in_subprocess(strategy_class):
-    """在子进程中执行选股，返回 StrategyConfig 列表。"""
+    """在子进程中执行选股，返回 ``StrategyConfig`` 列表。"""
     strategy = strategy_class(StrategyConfig(), None, None)
     return strategy.select_stocks()
 
 
 class StrategyRunner:
-    """策略运行管理器"""
+    """策略运行管理器。
+
+    它负责统一调度所有策略对象，是策略层的总控中心。
+    """
 
     def __init__(self, data_subscription=None, trade_executor=None,
                  position_manager=None, data_manager=None,
@@ -50,6 +53,7 @@ class StrategyRunner:
         self._heartbeat_callback = None
 
     def set_heartbeat_callback(self, callback) -> None:
+        """注册心跳回调，供看门狗感知策略主循环是否仍在工作。"""
         self._heartbeat_callback = callback
 
     # ------------------------------------------------------------------ 启动/停止
@@ -148,6 +152,7 @@ class StrategyRunner:
     # ------------------------------------------------------------------ 策略管理
 
     def add_strategy(self, strategy: BaseStrategy) -> None:
+        """向运行器中添加一个策略实例。"""
         with self._lock:
             exists = next(
                 (
@@ -181,12 +186,14 @@ class StrategyRunner:
             self._data_sub.subscribe_stocks([strategy.stock_code])
 
     def remove_strategy(self, strategy_id: str) -> None:
+        """按策略 ID 移除策略实例。"""
         with self._lock:
             self._strategies = [s for s in self._strategies
                                  if s.strategy_id != strategy_id]
         logger.info("StrategyRunner: 移除策略 %s", strategy_id[:8])
 
     def get_strategy(self, strategy_id: str) -> Optional[BaseStrategy]:
+        """按策略 ID 获取策略对象。"""
         with self._lock:
             for s in self._strategies:
                 if s.strategy_id == strategy_id:
@@ -194,6 +201,7 @@ class StrategyRunner:
         return None
 
     def get_all_strategies(self) -> List[BaseStrategy]:
+        """返回当前全部策略对象的副本列表。"""
         with self._lock:
             return list(self._strategies)
 
@@ -266,6 +274,7 @@ class StrategyRunner:
         return len(self._strategies) > 0
 
     def _find_strategy_class(self, strategy_name: str) -> Optional[Type[BaseStrategy]]:
+        """根据策略名称找到对应的策略类。"""
         for cls in self._strategy_classes:
             if cls.strategy_name == strategy_name:
                 return cls

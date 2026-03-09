@@ -16,7 +16,13 @@ logger = get_logger("trade")
 
 
 class OrderManager:
-    """订单追踪管理器"""
+    """订单追踪管理器。
+
+    它是整个交易链路的枢纽：
+    - 新订单先在这里注册
+    - 状态更新回到这里
+    - 成交回报也在这里落地并向外分发
+    """
 
     def __init__(self, data_manager=None, fee_schedule=None):
         self._data_mgr = data_manager
@@ -52,7 +58,7 @@ class OrderManager:
     def update_order_status(self, xt_order_id: int, status: OrderStatus,
                              filled_qty: int = 0, filled_amount: float = 0,
                              avg_price: float = 0) -> None:
-        """更新订单状态（由 callback 调用）"""
+        """更新订单状态（通常由回调层调用）。"""
         with self._lock:
             uuid = self._xt_to_uuid.get(xt_order_id)
             if not uuid:
@@ -84,7 +90,16 @@ class OrderManager:
         logger.debug("[ORDER] 订单状态变更 uuid=%s status=%s", uuid[:8], status.value)
 
     def on_trade(self, xt_order_id: int, trade_info: dict) -> None:
-        """成交回报入口"""
+        """成交回报入口。
+
+        这里会完成以下动作：
+        1. 找到这笔成交对应的内部订单。
+        2. 构造 ``TradeRecord``。
+        3. 计算手续费拆分。
+        4. 更新订单累计成交状态。
+        5. 持久化订单和成交。
+        6. 通知持仓模块、前端推送模块、策略模块。
+        """
         try:
             with self._lock:
                 uuid = self._xt_to_uuid.get(xt_order_id)
@@ -223,6 +238,7 @@ class OrderManager:
         return datetime.now()
 
     def _apply_fee_breakdown(self, trade: TradeRecord) -> None:
+        """为成交补齐手续费拆分结果。"""
         if trade.amount <= 0 and trade.price > 0 and trade.quantity > 0:
             trade.amount = trade.price * trade.quantity
 
@@ -263,30 +279,37 @@ class OrderManager:
     # ------------------------------------------------------------------ 查询
 
     def get_order(self, order_uuid: str) -> Optional[Order]:
+        """按内部 UUID 获取订单。"""
         return self._orders.get(order_uuid)
 
     def get_order_by_xt_id(self, xt_order_id: int) -> Optional[Order]:
+        """按柜台订单号获取订单。"""
         with self._lock:
             uuid = self._xt_to_uuid.get(xt_order_id)
             return self._orders.get(uuid) if uuid else None
 
     def get_orders_by_strategy(self, strategy_id: str) -> List[Order]:
+        """获取某个策略名下的全部订单。"""
         with self._lock:
             return [o for o in self._orders.values() if o.strategy_id == strategy_id]
 
     def get_active_orders(self) -> List[Order]:
+        """获取全部尚未终结的活跃订单。"""
         with self._lock:
             return [o for o in self._orders.values() if o.is_active()]
 
     # ------------------------------------------------------------------ 回调注册
 
     def set_position_callback(self, callback: Callable[[TradeRecord], None]) -> None:
+        """注册“成交 -> 持仓更新”回调。"""
         self._position_callback = callback
 
     def set_strategy_callback(self, callback: Callable[[Order], None]) -> None:
+        """注册“订单变化 -> 策略通知”回调。"""
         self._strategy_callback = callback
 
     def set_trade_callback(self, callback: Callable[[TradeRecord], None]) -> None:
+        """注册“成交变化 -> 其他监听方”回调，例如 WebSocket 推送。"""
         self._trade_callback = callback
 
 

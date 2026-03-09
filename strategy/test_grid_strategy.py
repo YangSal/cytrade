@@ -20,7 +20,11 @@ logger = get_logger("trade")
 
 
 class TestGridStrategy(BaseStrategy):
-    """高频网格测试策略"""
+    """高频网格测试策略。
+
+    这个策略的主要用途是演示和验证框架链路，
+    不强调收益逻辑，而强调“流程是否完整可跑通”。
+    """
 
     __test__ = False
 
@@ -30,8 +34,9 @@ class TestGridStrategy(BaseStrategy):
 
     def __init__(self, config: StrategyConfig,
                  trade_executor=None, position_manager=None):
+        """初始化网格策略，并从配置中读取网格参数。"""
         super().__init__(config, trade_executor, position_manager)
-        # 从 config.params 读取网格参数
+        # 把策略自定义参数集中放在 config.params 中，便于不同策略自由扩展。
         p = config.params
         self._grid_count: int = int(p.get("grid_count", 10))
         self._grid_low: float = float(p.get("grid_low", 0.0))
@@ -97,6 +102,7 @@ class TestGridStrategy(BaseStrategy):
     # ------------------------------------------------------------------ Custom state
 
     def _get_custom_state(self) -> dict:
+        """返回需要持久化保存的网格状态。"""
         return {
             "grid_levels": self._grid_levels,
             "last_price": self._last_price,
@@ -104,6 +110,7 @@ class TestGridStrategy(BaseStrategy):
         }
 
     def _restore_custom_state(self, state: dict) -> None:
+        """从持久化快照中恢复网格状态。"""
         self._grid_levels = state.get("grid_levels", [])
         self._last_price = state.get("last_price", 0.0)
         self._initialized = state.get("initialized", False)
@@ -111,7 +118,10 @@ class TestGridStrategy(BaseStrategy):
     # ------------------------------------------------------------------ Private
 
     def _init_grid(self, current_price: float) -> None:
-        """以当前价格为中心初始化网格"""
+        """以当前价格为中心初始化网格。
+
+        如果没有显式给出上下边界，就默认围绕当前价上下各留 5% 区间。
+        """
         low = self._grid_low or current_price * 0.95
         high = self._grid_high or current_price * 1.05
         step = (high - low) / self._grid_count

@@ -1,3 +1,6 @@
+// 这个文件集中放前端展示用的状态映射函数。
+// 这样页面组件只要关心“传入什么值”，不用每个页面都重复写判断逻辑。
+
 export const orderStatusText = (status) => ({
   UNREPORTED: '未报',
   WAIT_REPORTING: '待报',
@@ -12,6 +15,7 @@ export const orderStatusText = (status) => ({
   UNKNOWN: '未知'
 }[status] || status)
 
+// Element Plus 的 Tag 组件需要 type 值，这里统一做映射。
 export const orderStatusTagType = (status) => ({
   SUCCEEDED: 'success',
   PART_SUCC: 'warning',
@@ -42,11 +46,13 @@ export const strategyStatusTagType = (status) => ({
   INITIALIZING: ''
 }[status] || '')
 
+// 买卖方向的展示文本。
 export const orderDirectionText = (direction) => ({
   BUY: '买入',
   SELL: '卖出'
 }[direction] || direction)
 
+// 委托类型的展示文本。
 export const orderTypeText = (orderType) => ({
   LIMIT: '限价',
   MARKET: '市价',

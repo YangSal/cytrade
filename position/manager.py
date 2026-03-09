@@ -17,7 +17,11 @@ logger = get_logger("trade")
 
 
 class PositionManager:
-    """持仓管理器"""
+    """持仓管理器。
+
+    它只根据“成交结果”更新持仓，不直接发单。
+    这样可以保证持仓状态始终以真实成交为准，而不是以委托为准。
+    """
 
     def __init__(self, cost_method: str = "moving_average", data_manager=None, fee_schedule=None):
         self._positions: Dict[str, PositionInfo] = {}   # {strategy_id: PositionInfo}
@@ -68,7 +72,7 @@ class PositionManager:
             logger.error("PositionManager: on_trade_callback 异常: %s", e, exc_info=True)
 
     def update_price(self, stock_code: str, price: float) -> None:
-        """更新标的最新价格，重新计算浮动盈亏"""
+        """更新指定证券的最新价格，并重算浮动盈亏。"""
         with self._lock:
             for pos in self._positions.values():
                 if pos.stock_code == stock_code and pos.total_quantity > 0:
@@ -77,10 +81,12 @@ class PositionManager:
     # ------------------------------------------------------------------ 查询
 
     def get_position(self, strategy_id: str) -> Optional[PositionInfo]:
+        """按策略 ID 获取单个持仓。"""
         with self._lock:
             return self._positions.get(strategy_id)
 
     def get_all_positions(self) -> Dict[str, PositionInfo]:
+        """返回全部持仓的浅拷贝。"""
         with self._lock:
             return dict(self._positions)
 
@@ -142,18 +148,21 @@ class PositionManager:
     # ------------------------------------------------------------------ PRIVATE
 
     def _apply_buy(self, pos: PositionInfo, trade: TradeRecord) -> None:
+        """处理买入成交对持仓的影响。"""
         qty = trade.quantity
         price = trade.price
         amount = trade.amount or (price * qty)
         total_fee = self._trade_total_fee(trade)
 
         if self._cost_method == CostMethod.MOVING_AVERAGE:
+            # 移动平均法下，总成本增加，再用总成本 / 总股数得到新均价。
             pos.total_cost += amount + total_fee
             pos.total_quantity += qty
             if pos.is_t0:
                 pos.available_quantity += qty
             pos.avg_cost = pos.total_cost / pos.total_quantity if pos.total_quantity > 0 else 0
         else:  # FIFO
+            # FIFO 需要把每次买入拆成独立批次，卖出时再一批批扣减。
             lot_cost = (amount + total_fee) / qty if qty > 0 else price
             pos.fifo_lots.append(FifoLot(quantity=qty, cost_price=lot_cost))
             pos.total_cost += amount + total_fee
@@ -163,6 +172,7 @@ class PositionManager:
             pos.avg_cost = pos.total_cost / pos.total_quantity if pos.total_quantity > 0 else 0
 
     def _apply_sell(self, pos: PositionInfo, trade: TradeRecord) -> None:
+        """处理卖出成交对持仓的影响。"""
         qty = trade.quantity
         price = trade.price
         amount = trade.amount or (price * qty)
@@ -170,6 +180,7 @@ class PositionManager:
         net_amount = amount - total_fee
 
         if self._cost_method == CostMethod.MOVING_AVERAGE:
+            # 移动平均法：卖出成本 = 当前均价 * 卖出数量。
             cost_sold = pos.avg_cost * qty
             profit = net_amount - cost_sold
             pos.realized_pnl += profit
@@ -182,6 +193,7 @@ class PositionManager:
                 pos.total_quantity = 0
                 pos.available_quantity = 0
         else:  # FIFO
+            # FIFO：从最早买入的批次开始逐批扣减，统计实际成本基础。
             remaining = qty
             cost_basis = 0.0
             while remaining > 0 and pos.fifo_lots:
@@ -200,12 +212,20 @@ class PositionManager:
             pos.avg_cost = pos.total_cost / pos.total_quantity if pos.total_quantity > 0 else 0
 
     def _trade_total_fee(self, trade: TradeRecord) -> float:
+        """获取一笔成交应计入持仓成本的总费用。"""
         total_fee = float(getattr(trade, "total_fee", 0.0) or 0.0)
         if total_fee > 0:
             return total_fee
         return float(getattr(trade, "commission", 0.0) or 0.0)
 
     def _resolve_is_t0(self, stock_code: str, trade_or_position) -> bool:
+        """确定证券是否按 T+0 规则处理。
+
+        优先级：
+        1. 成交/持仓对象上的显式 ``is_t0`` 标记。
+        2. 费率表中的证券属性配置。
+        3. 最终回退为 ``False``。
+        """
         explicit = getattr(trade_or_position, "is_t0", None)
         if explicit is True:
             return True

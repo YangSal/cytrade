@@ -31,7 +31,10 @@ except ImportError:
 
 
 class TradeExecutor:
-    """交易执行器"""
+    """交易执行器。
+
+    该模块负责把策略发出的“买/卖/平仓/撤单意图”翻译成实际交易指令。
+    """
 
     # A 股最小交易单位
     _LOT_SIZE = 100
@@ -153,7 +156,7 @@ class TradeExecutor:
     # ------------------------------------------------------------------ 撤单
 
     def cancel_order(self, order_uuid: str, remark: str = "") -> bool:
-        """撤单，返回是否成功"""
+        """提交撤单请求，返回是否成功发出。"""
         order = self._order_mgr.get_order(order_uuid)
         if not order:
             logger.warning("cancel_order: 未找到订单 uuid=%s", order_uuid[:8])
@@ -183,7 +186,7 @@ class TradeExecutor:
     # ------------------------------------------------------------------ Internal
 
     def _submit_order(self, order: Order) -> Order:
-        """提交订单到 xtquant 并注册到 OrderManager"""
+        """提交订单到 xtquant，并同步注册到 ``OrderManager``。"""
         trader = self._conn_mgr.get_trader() if self._conn_mgr else None
 
         if not trader or not _XT_AVAILABLE:
@@ -199,9 +202,11 @@ class TradeExecutor:
         try:
             account = self._conn_mgr.account
             xt_code = self._code_to_xt(order.stock_code)
+            # 内部买卖方向要转换成 xtquant 常量。
             xt_direction = (xtconstant.STOCK_BUY
                             if order.direction == OrderDirection.BUY
                             else xtconstant.STOCK_SELL)
+            # 不同市场的市价单常量不同，这里按证券代码前缀自动选择。
             price_type = (xtconstant.FIX_PRICE
                           if order.order_type in (OrderType.LIMIT, OrderType.BY_AMOUNT,
                                                   OrderType.BY_QUANTITY)
@@ -234,12 +239,13 @@ class TradeExecutor:
 
     @staticmethod
     def _calc_quantity(amount: float, price: float) -> int:
-        """按金额计算可买数量，取整到100股"""
+        """按金额计算可买数量，并向下取整到一手（100 股）。"""
         lots = math.floor(amount / price / TradeExecutor._LOT_SIZE)
         return lots * TradeExecutor._LOT_SIZE
 
     @staticmethod
     def _code_to_xt(code: str) -> str:
+        """把内部证券代码转换为 xtquant 需要的市场代码格式。"""
         code = str(code).strip().zfill(6)
         if code.startswith(("6", "5")):
             return f"{code}.SH"
@@ -248,6 +254,7 @@ class TradeExecutor:
     @staticmethod
     def _failed_order(strategy_id: str, strategy_name: str, stock_code: str,
                       direction: OrderDirection, reason: str) -> Order:
+        """构造一张失败订单对象，供上层统一处理。"""
         order = Order(
             strategy_id=strategy_id,
             strategy_name=strategy_name,

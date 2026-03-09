@@ -1,4 +1,8 @@
-"""API 路由定义"""
+"""API 路由定义。
+
+这个模块的每个接口都尽量保持“薄路由”原则：
+只负责参数接收、调用核心模块、整理返回值，不在路由里堆积业务逻辑。
+"""
 from datetime import datetime
 from typing import List, Optional
 
@@ -67,6 +71,7 @@ if _FASTAPI and router is not None:
 
     @router.get("/strategies/{strategy_id}", response_model=StrategyInfo, tags=["策略"])
     async def get_strategy(strategy_id: str):
+        """获取单个策略详情。"""
         if not _strategy_runner:
             raise HTTPException(status_code=503, detail="StrategyRunner 未初始化")
         s = _strategy_runner.get_strategy(strategy_id)
@@ -88,6 +93,7 @@ if _FASTAPI and router is not None:
 
     @router.post("/strategies/{strategy_id}/pause", response_model=ActionResponse, tags=["策略"])
     async def pause_strategy(strategy_id: str):
+        """暂停指定策略。"""
         if not _strategy_runner:
             raise HTTPException(status_code=503, detail="StrategyRunner 未初始化")
         s = _strategy_runner.get_strategy(strategy_id)
@@ -98,6 +104,7 @@ if _FASTAPI and router is not None:
 
     @router.post("/strategies/{strategy_id}/resume", response_model=ActionResponse, tags=["策略"])
     async def resume_strategy(strategy_id: str):
+        """恢复指定策略。"""
         if not _strategy_runner:
             raise HTTPException(status_code=503, detail="StrategyRunner 未初始化")
         s = _strategy_runner.get_strategy(strategy_id)
@@ -121,6 +128,7 @@ if _FASTAPI and router is not None:
 
     @router.get("/positions", response_model=List[PositionDetail], tags=["持仓"])
     async def get_positions():
+        """获取全部持仓明细。"""
         if not _position_manager:
             return []
         positions = _position_manager.get_all_positions()
@@ -150,6 +158,7 @@ if _FASTAPI and router is not None:
 
     @router.get("/positions/summary", response_model=PositionSummary, tags=["持仓"])
     async def get_position_summary():
+        """获取持仓汇总统计。"""
         if not _position_manager:
             return PositionSummary(**{k: 0 for k in PositionSummary.model_fields})
         summary = _position_manager.get_position_summary()
@@ -159,6 +168,7 @@ if _FASTAPI and router is not None:
 
     @router.get("/orders", response_model=List[OrderInfo], tags=["订单"])
     async def get_orders(strategy_id: Optional[str] = Query(None)):
+        """获取订单列表，可按策略过滤。"""
         if not _order_manager:
             return []
         orders = (_order_manager.get_orders_by_strategy(strategy_id)
@@ -190,6 +200,7 @@ if _FASTAPI and router is not None:
 
     @router.get("/orders/{order_uuid}", response_model=OrderInfo, tags=["订单"])
     async def get_order(order_uuid: str):
+        """获取单个订单详情。"""
         if not _order_manager:
             raise HTTPException(status_code=503, detail="OrderManager 未初始化")
         o = _order_manager.get_order(order_uuid)
@@ -242,6 +253,7 @@ if _FASTAPI and router is not None:
     async def get_trades(strategy_id: Optional[str] = Query(None),
                          start_date: Optional[str] = Query(None),
                          end_date: Optional[str] = Query(None)):
+        """获取成交记录列表，支持按策略和日期过滤。"""
         if not _data_manager:
             return []
         records = _data_manager.query_trades(strategy_id, start_date, end_date)
@@ -282,6 +294,7 @@ if _FASTAPI and router is not None:
 
     @router.get("/system/status", response_model=SystemStatus, tags=["系统"])
     async def get_system_status():
+        """获取系统运行状态概览。"""
         connected = _connection_manager.is_connected() if _connection_manager else False
         trading_time = _strategy_runner.is_trading_time() if _strategy_runner else False
         strategy_count = len(_strategy_runner.get_all_strategies()) if _strategy_runner else 0

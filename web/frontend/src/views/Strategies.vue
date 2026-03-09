@@ -32,32 +32,39 @@ import { strategyStatusText, strategyStatusTagType } from '../utils/status'
 const strategies = ref([])
 
 async function load() {
+  // 拉取当前所有策略的最新状态。
   const res = await axios.get('/api/strategies')
   strategies.value = res.data
 }
 
 async function pause(row) {
+  // 调用后端接口暂停策略，然后重新刷新列表。
   await axios.post(`/api/strategies/${row.strategy_id}/pause`)
   ElMessage.success('已暂停')
   load()
 }
 
 async function resume(row) {
+  // 调用后端接口恢复策略，然后重新刷新列表。
   await axios.post(`/api/strategies/${row.strategy_id}/resume`)
   ElMessage.success('已恢复')
   load()
 }
 
 async function close(row) {
+  // 平仓属于风险较高操作，先弹确认框，避免误点。
   await ElMessageBox.confirm(`确认对 ${row.stock_code} 执行强制平仓？`, '确认', { type: 'warning' })
   await axios.post(`/api/strategies/${row.strategy_id}/close`)
   ElMessage.success('平仓指令已发送')
   load()
 }
 
+// 页面内统一的数字格式化函数。
 const fmt2 = (_, __, val) => typeof val === 'number' ? val.toFixed(2) : val
 const statusText = strategyStatusText
 const tagType = strategyStatusTagType
 
-onMounted(() => { load(); setInterval(load, 5000) })
+onMounted(() => {
+  load(); setInterval(load, 5000)
+})
 </script>

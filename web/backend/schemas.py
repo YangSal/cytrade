@@ -1,4 +1,10 @@
-"""Pydantic 数据模型（API 请求/响应）"""
+"""Pydantic 数据模型（API 请求/响应）。
+
+这些模型的作用是把后端返回的数据结构固定下来：
+- 后端开发者知道接口应该返回哪些字段
+- 前端开发者知道可以稳定依赖哪些字段
+- FastAPI 可以自动生成接口文档
+"""
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -10,6 +16,7 @@ except ImportError:
 
 
 class StrategyInfo(BaseModel):
+    """策略列表与策略详情接口使用的统一响应模型。"""
     strategy_id: str
     strategy_name: str
     stock_code: str
@@ -23,6 +30,7 @@ class StrategyInfo(BaseModel):
 
 
 class PositionDetail(BaseModel):
+    """单个持仓的详细信息。"""
     strategy_id: str
     strategy_name: str
     stock_code: str
@@ -44,6 +52,7 @@ class PositionDetail(BaseModel):
 
 
 class PositionSummary(BaseModel):
+    """全部持仓汇总统计信息。"""
     positions_count: int
     total_market_value: float
     total_cost: float
@@ -58,6 +67,7 @@ class PositionSummary(BaseModel):
 
 
 class OrderInfo(BaseModel):
+    """订单展示模型。"""
     order_uuid: str
     strategy_id: str
     strategy_name: str
@@ -80,6 +90,11 @@ class OrderInfo(BaseModel):
 
 
 class TradeInfo(BaseModel):
+    """成交展示模型。
+
+    这里既保留了本项目内部关注的字段，也保留了部分 XtTrade 原始字段，
+    方便问题排查和前端扩展展示。
+    """
     trade_id: str
     xt_order_id: int
     order_uuid: str
@@ -111,6 +126,7 @@ class TradeInfo(BaseModel):
 
 
 class SystemStatus(BaseModel):
+    """系统状态面板使用的响应模型。"""
     connected: bool
     trading_time: bool
     strategy_count: int
@@ -121,6 +137,7 @@ class SystemStatus(BaseModel):
 
 
 class ActionResponse(BaseModel):
+    """执行类接口的通用返回格式。"""
     success: bool
     message: str
 

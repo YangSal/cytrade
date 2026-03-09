@@ -58,7 +58,15 @@ except ImportError:
 
 
 class ConnectionManager:
-    """XtQuant 交易连接管理器（单例）"""
+    """XtQuant 交易连接管理器。
+
+    它负责统一管理与 QMT 的连接生命周期，包括：
+    - 初次连接
+    - 账户订阅
+    - 断线后的指数退避重连
+    - 心跳线程维护
+    - 为其他模块提供可复用的 trader/account 对象
+    """
 
     def __init__(self, qmt_path: str, account_id: str,
                  base_interval: int = 1, max_interval: int = 60,
@@ -85,9 +93,16 @@ class ConnectionManager:
     # ------------------------------------------------------------------ Public
 
     def connect(self) -> bool:
-        """连接到 QMT 客户端，返回是否成功"""
+        """连接到 QMT 客户端，返回是否成功。
+
+        连接流程分为三步：
+        1. 创建新的 trader/account 对象。
+        2. 注册回调并启动 trader。
+        3. 建立连接后再完成账户订阅。
+        """
         with self._lock:
             try:
+                # 每次重新 connect 前都先停止旧心跳，避免残留线程继续运行。
                 self._stop_heartbeat.set()
                 if self._trader:
                     try:
@@ -97,10 +112,12 @@ class ConnectionManager:
                 self._trader = XtQuantTrader(self._qmt_path, self._session_id)
                 self._account = StockAccount(self._account_id)
                 if self._callback:
+                    # 回调必须在连接前注册，确保刚连接就能收到事件。
                     self._trader.register_callback(self._callback)
                 self._trader.start()
                 ret = self._trader.connect()
                 if ret == 0:
+                    # 连接成功后还要订阅账户，否则很多交易回报不会推送过来。
                     subscribe_ret = self._trader.subscribe(self._account)
                     if subscribe_ret != 0:
                         logger.error("ConnectionManager: 账户订阅失败，返回码: %d", subscribe_ret)
@@ -120,7 +137,7 @@ class ConnectionManager:
                 return False
 
     def disconnect(self) -> None:
-        """断开连接"""
+        """主动断开连接并停止心跳线程。"""
         self._stop_heartbeat.set()
         if self._trader:
             try:
@@ -131,7 +148,12 @@ class ConnectionManager:
         logger.info("ConnectionManager: 已断开连接")
 
     def reconnect(self) -> bool:
-        """指数退避重连"""
+        """使用指数退避策略重连。
+
+        指数退避的好处是：
+        - 刚断线时快速重试，提高恢复速度。
+        - 长时间异常时逐渐拉长间隔，避免无意义高频重连。
+        """
         interval = self._base_interval
         retries = 0
         while True:
@@ -145,6 +167,7 @@ class ConnectionManager:
                 logger.info("ConnectionManager: 重连成功")
                 for callback in self._reconnect_callbacks:
                     try:
+                        # 这里执行的是“重连成功后的补偿动作”，例如恢复行情订阅。
                         callback()
                     except Exception as e:
                         logger.error("ConnectionManager: 重连回调异常: %s", e, exc_info=True)
@@ -152,10 +175,15 @@ class ConnectionManager:
             interval = min(interval * 2, self._max_interval)
 
     def get_trader(self) -> Optional[XtQuantTrader]:
-        """获取交易通道对象"""
+        """获取底层交易通道对象。"""
         return self._trader
 
     def is_connected(self) -> bool:
+        """判断当前连接是否可用。
+
+        如果底层 trader 提供 ``is_connected()``，优先使用其结果；
+        否则退回本地维护的连接状态标记。
+        """
         if self._trader and hasattr(self._trader, "is_connected"):
             try:
                 return bool(self._trader.is_connected())
@@ -164,13 +192,20 @@ class ConnectionManager:
         return self._connected
 
     def register_callback(self, callback) -> None:
-        """注册交易回调（需在 connect 前调用）"""
+        """注册交易回调对象。
+
+        通常由 ``main.py`` 在系统装配阶段调用。
+        """
         self._callback = callback
         if self._trader:
             self._trader.register_callback(callback)
 
     def register_reconnect_callback(self, callback) -> None:
-        """注册重连成功回调（用于恢复订阅等）"""
+        """注册重连成功回调。
+
+        这些回调不会参与“是否重连成功”的判断，
+        只负责在重连成功后执行补偿逻辑。
+        """
         self._reconnect_callbacks.append(callback)
 
     @property
@@ -178,7 +213,7 @@ class ConnectionManager:
         return self._account
 
     def on_disconnected(self) -> None:
-        """由 callback 调用，触发重连"""
+        """由回调层触发，启动异步重连线程。"""
         logger.warning("ConnectionManager: 检测到连接断开，启动重连...")
         self._connected = False
         with self._lock:
@@ -193,6 +228,11 @@ class ConnectionManager:
     # ------------------------------------------------------------------ Private
 
     def _start_heartbeat(self) -> None:
+        """启动心跳线程。
+
+        心跳线程的作用主要是定期检查本地连接状态，
+        并为后续扩展真正的 ping 逻辑预留位置。
+        """
         self._stop_heartbeat.clear()
         if self._heartbeat_thread and self._heartbeat_thread.is_alive():
             return
@@ -202,6 +242,7 @@ class ConnectionManager:
         self._heartbeat_thread.start()
 
     def _heartbeat_loop(self) -> None:
+        """心跳线程主循环。"""
         while not self._stop_heartbeat.wait(timeout=30):
             try:
                 if not self._connected:

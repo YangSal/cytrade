@@ -27,6 +27,11 @@ _DATE_FORMATS: tuple[str, ...] = (
 
 
 def _coerce_to_date(value: DateLike) -> date:
+    """把字符串 / ``date`` / ``datetime`` 统一转换成 ``date``。
+
+    这是整个交易日模块最底层的输入清洗函数。
+    所有公开函数都会先走这里，避免每个函数都重复写日期解析逻辑。
+    """
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -52,11 +57,16 @@ def _coerce_to_date(value: DateLike) -> date:
 
 
 def _format_date(value: DateLike) -> str:
+    """把任意支持的日期输入格式化成 ``YYYYMMDD``。"""
     return _coerce_to_date(value).strftime("%Y%m%d")
 
 
 @lru_cache(maxsize=4096)
 def _is_market_day_cached(target: date) -> bool:
+    """带缓存地判断是否为交易日。
+
+    交易日判断会被频繁调用，增加缓存可以减少重复计算。
+    """
     return target.isoweekday() <= 5 and chinese_calendar.is_workday(target)
 
 

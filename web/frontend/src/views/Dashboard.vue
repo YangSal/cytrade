@@ -121,15 +121,18 @@ const { status, positionSummary } = storeToRefs(store)
 let timer = null
 
 function refresh() {
+  // 首页展示的是摘要数据，因此同时刷新系统状态和持仓汇总。
   store.fetchStatus()
   store.fetchPositionSummary()
 }
 
 function fmt2(value) {
+  // 统一把金额和盈亏格式化成两位小数，避免模板里写重复逻辑。
   return typeof value === 'number' ? value.toFixed(2) : value
 }
 
 function pnlStyle(value) {
+  // A 股常见习惯：盈利红色，亏损绿色。
   if (typeof value !== 'number') return {}
   if (value > 0) return { color: '#f56c6c' }
   if (value < 0) return { color: '#67c23a' }
@@ -137,11 +140,13 @@ function pnlStyle(value) {
 }
 
 onMounted(() => {
+  // 首次进入页面时立即刷新一次，之后再定时轮询。
   refresh()
   timer = setInterval(refresh, 5000)
 })
 
 onUnmounted(() => {
+  // 页面销毁时记得清理定时器。
   if (timer) clearInterval(timer)
 })
 </script>

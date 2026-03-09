@@ -1,4 +1,8 @@
-"""持仓数据模型"""
+"""持仓数据模型。
+
+这些模型只描述“持仓是什么样子”，不负责具体业务逻辑。
+真正的买卖更新逻辑在 ``position.manager`` 中实现。
+"""
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List
@@ -38,7 +42,11 @@ class PositionInfo:
     update_time: datetime = field(default_factory=datetime.now)
 
     def refresh_market_value(self, price: float) -> None:
-        """更新最新价并重算盈亏"""
+        """更新最新价并重算浮动盈亏。
+
+        注意：这里不会修改已实现盈亏，
+        因为已实现盈亏只会在真实卖出成交时发生变化。
+        """
         self.current_price = price
         self.market_value = self.total_quantity * price
         if self.total_cost > 0:

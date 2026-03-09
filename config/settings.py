@@ -12,10 +12,16 @@ _CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _env_str(name: str, default: str = "") -> str:
+    """读取字符串环境变量。
+
+    这是最基础的读取函数，其余类型函数都遵循相同的容错思路：
+    如果环境变量不存在，就返回默认值。
+    """
     return os.getenv(name, default)
 
 
 def _env_int(name: str, default: int) -> int:
+    """读取整数环境变量，非法值时回退到默认值。"""
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
@@ -26,6 +32,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
+    """读取浮点环境变量，非法值时回退到默认值。"""
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
@@ -36,6 +43,11 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_bool(name: str, default: bool) -> bool:
+    """读取布尔环境变量。
+
+    常见真值写法包括：``1``、``true``、``yes``、``on``。
+    其余情况统一视为 ``False``，但如果变量缺失则保留默认值。
+    """
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
@@ -43,6 +55,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _env_list(name: str, default: list[str]) -> list[str]:
+    """读取逗号分隔的列表环境变量。"""
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
@@ -50,6 +63,11 @@ def _env_list(name: str, default: list[str]) -> list[str]:
 
 
 def _env_json_dict(name: str, default: dict) -> dict:
+    """读取 JSON 字典环境变量。
+
+    适合像远程数据库配置这种结构化参数。
+    如果 JSON 解析失败，直接回退到默认配置，避免应用启动失败。
+    """
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
@@ -61,6 +79,7 @@ def _env_json_dict(name: str, default: dict) -> dict:
 
 
 def _env_enum(name: str, enum_cls, default):
+    """读取枚举环境变量，并确保值一定落在合法枚举范围内。"""
     raw = os.getenv(name)
     if raw is None or raw == "":
         return default
@@ -71,6 +90,12 @@ def _env_enum(name: str, enum_cls, default):
 
 
 def _coerce_subscription_period(value) -> SubscriptionPeriod:
+    """把任意输入统一转换成 ``SubscriptionPeriod`` 枚举。
+
+    这个函数主要用于：
+    - 环境变量读取后的二次校验
+    - 运行时通过构造参数覆盖配置时的类型归一化
+    """
     if isinstance(value, SubscriptionPeriod):
         return value
     try:
@@ -80,6 +105,11 @@ def _coerce_subscription_period(value) -> SubscriptionPeriod:
 
 
 class Settings:
+    """项目统一配置对象。
+
+    这个类的职责是把“环境变量 + 默认值 + 运行时覆盖值”整合成一份
+    可直接使用的配置快照。
+    """
     # ---- QMT 连接 ----
     QMT_PATH: str = _env_str("QMT_PATH", "")
     ACCOUNT_ID: str = _env_str("ACCOUNT_ID", "")
@@ -143,17 +173,28 @@ class Settings:
 
 
     def __init__(self, **overrides):
-        """支持用关键字参数覆盖默认配置"""
+        """支持在实例化时用关键字参数覆盖默认配置。
+
+        这样测试代码或主程序装配时，可以很方便地构造一份临时配置，
+        而不必真的修改环境变量。
+        """
         for k, v in overrides.items():
             if hasattr(self, k):
                 if k == "SUBSCRIPTION_PERIOD":
+                    # 枚举字段需要做一次归一化，避免传入字符串后类型不一致。
                     v = _coerce_subscription_period(v)
                 setattr(self, k, v)
             else:
                 raise ValueError(f"Unknown config key: {k}")
 
     def ensure_dirs(self):
-        """确保必要的目录存在"""
+        """确保运行期需要的目录都已存在。
+
+        主要包括：
+        - 日志目录
+        - 状态快照目录
+        - SQLite 数据库所在目录
+        """
         os.makedirs(self.LOG_DIR, exist_ok=True)
         os.makedirs(self.STATE_SAVE_DIR, exist_ok=True)
         db_dir = os.path.dirname(self.SQLITE_DB_PATH)
@@ -161,5 +202,5 @@ class Settings:
             os.makedirs(db_dir, exist_ok=True)
 
 
-# 全局单例（可在模块级别直接 import 使用）
+# 全局单例：多数模块直接 ``from config.settings import settings`` 即可使用。
 settings = Settings()
