@@ -41,11 +41,15 @@ class TestDataManager(unittest.TestCase):
             quantity=1000,
             amount=10500.0,
             commission=10.0,
+            buy_commission=10.0,
+            total_fee=10.0,
         )
         self.mgr.save_trade(trade)
         trades = self.mgr.query_trades(strategy_id="s1")
         self.assertEqual(len(trades), 1)
         self.assertEqual(trades[0]["trade_id"], "T001")
+        self.assertEqual(trades[0]["buy_commission"], 10.0)
+        self.assertEqual(trades[0]["total_fee"], 10.0)
 
     def test_save_and_query_order(self):
         order = Order(
@@ -54,7 +58,7 @@ class TestDataManager(unittest.TestCase):
             direction=OrderDirection.BUY,
             order_type=OrderType.LIMIT,
             price=10.0, quantity=100,
-            status=OrderStatus.SUBMITTED,
+            status=OrderStatus.WAIT_REPORTING,
         )
         self.mgr.save_order(order)
         orders = self.mgr.query_orders(strategy_id="s1")
@@ -68,14 +72,14 @@ class TestDataManager(unittest.TestCase):
             direction=OrderDirection.BUY,
             order_type=OrderType.LIMIT,
             price=10.0, quantity=100,
-            status=OrderStatus.SUBMITTED,
+            status=OrderStatus.WAIT_REPORTING,
         )
         self.mgr.save_order(order)
-        order.status = OrderStatus.FILLED
+        order.status = OrderStatus.SUCCEEDED
         order.filled_quantity = 100
         self.mgr.save_order(order)
         orders = self.mgr.query_orders(strategy_id="s1")
-        self.assertEqual(orders[0]["status"], "FILLED")
+        self.assertEqual(orders[0]["status"], "SUCCEEDED")
 
     def test_state_save_load(self):
         snaps = [_FakeSnap(), _FakeSnap()]
@@ -101,6 +105,8 @@ class TestDataManager(unittest.TestCase):
             quantity=100,
             amount=1000.0,
             commission=1.0,
+            buy_commission=1.0,
+            total_fee=1.0,
             trade_time=datetime(2026, 3, 2, 9, 31, 0),
         )
         self.mgr.save_trade(trade)
@@ -117,7 +123,7 @@ class TestDataManager(unittest.TestCase):
             order_type=OrderType.LIMIT,
             price=10.0, quantity=100,
             xt_order_id=123456,
-            status=OrderStatus.SUBMITTED,
+            status=OrderStatus.WAIT_REPORTING,
         )
         self.mgr.save_order(order)
 
@@ -176,7 +182,7 @@ class TestDataManager(unittest.TestCase):
             INSERT INTO orders (
                 order_uuid, xt_order_id, strategy_name, strategy_id, stock_code,
                 direction, order_type, price, quantity, amount, status
-            ) VALUES ('uuid-leg', '1001', 'TestGrid', 's1', '000001', 'BUY', 'LIMIT', 10.0, 100, 1000.0, 'SUBMITTED');
+            ) VALUES ('uuid-leg', '1001', 'TestGrid', 's1', '000001', 'BUY', 'LIMIT', 10.0, 100, 1000.0, 'WAIT_REPORTING');
             """)
 
         migrated_mgr = DataManager(db_path=legacy_db, state_dir=self._tmp)
@@ -192,6 +198,16 @@ class TestDataManager(unittest.TestCase):
         self.assertEqual(order_type, "integer")
         self.assertEqual(trade_value, 1001)
         self.assertEqual(order_value, 1001)
+
+    def test_trade_fee_columns_are_migrated(self):
+        with self.mgr._get_conn() as conn:
+            rows = conn.execute("PRAGMA table_info(trades)").fetchall()
+        columns = {row[1] for row in rows}
+        self.assertIn("buy_commission", columns)
+        self.assertIn("sell_commission", columns)
+        self.assertIn("stamp_tax", columns)
+        self.assertIn("total_fee", columns)
+        self.assertIn("is_t0", columns)
 
 
 if __name__ == "__main__":

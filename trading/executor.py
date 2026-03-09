@@ -167,7 +167,7 @@ class TradeExecutor:
         if not trader or not _XT_AVAILABLE:
             logger.warning("cancel_order [MOCK]: uuid=%s xt_id=%d",
                            order_uuid[:8], order.xt_order_id)
-            order.status = OrderStatus.CANCELLED
+            order.status = OrderStatus.CANCELED
             return True
 
         try:
@@ -187,9 +187,9 @@ class TradeExecutor:
         trader = self._conn_mgr.get_trader() if self._conn_mgr else None
 
         if not trader or not _XT_AVAILABLE:
-            # Mock 模式：直接标记为 SUBMITTED
+            # Mock 模式：直接标记为待报
             order.xt_order_id = int(time.time() * 1000) % 2**31
-            order.status = OrderStatus.SUBMITTED
+            order.status = OrderStatus.WAIT_REPORTING
             self._order_mgr.register_order(order)
             logger.info("[ORDER] [MOCK] 下单 uuid=%s code=%s dir=%s price=%.3f qty=%d",
                         order.order_uuid[:8], order.stock_code,
@@ -210,19 +210,23 @@ class TradeExecutor:
                                 else xtconstant.MARKET_SZ_CONVERT))
 
             seq = trader.order_stock_async(
-                account, xt_code, xt_direction,
-                order.quantity, price_type,
-                order.price, strategy=order.strategy_name,
-                remark=order.remark[:64]
+                account,
+                xt_code,
+                xt_direction,
+                order.quantity,
+                price_type,
+                order.price,
+                order.strategy_name,
+                order.remark[:64],
             )
-            order.status = OrderStatus.SUBMITTED
+            order.status = OrderStatus.WAIT_REPORTING
             self._order_mgr.register_order(order)
             self._order_mgr.register_seq(seq, order.order_uuid)
             logger.info("[ORDER] 下单提交 uuid=%s seq=%d code=%s dir=%s price=%.3f qty=%d",
                         order.order_uuid[:8], seq, order.stock_code,
                         order.direction.value, order.price, order.quantity)
         except Exception as e:
-            order.status = OrderStatus.FAILED
+            order.status = OrderStatus.JUNK
             self._order_mgr.register_order(order)
             logger.error("TradeExecutor: 下单失败 uuid=%s: %s",
                          order.order_uuid[:8], e, exc_info=True)
@@ -249,8 +253,8 @@ class TradeExecutor:
             strategy_name=strategy_name,
             stock_code=stock_code,
             direction=direction,
-            status=OrderStatus.FAILED,
-            remark=f"[FAILED] {reason}",
+            status=OrderStatus.JUNK,
+            remark=f"[JUNK] {reason}",
         )
         return order
 

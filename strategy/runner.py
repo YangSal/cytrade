@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Type
 
 from config.enums import StrategyStatus
 from core.models import TickData
+from core.trading_calendar import is_market_day
 from strategy.base import BaseStrategy
 from strategy.models import StrategyConfig, StrategySnapshot
 from monitor.logger import get_logger
@@ -73,11 +74,8 @@ class StrategyRunner:
         # 启动调度器
         self._start_scheduler()
 
-        # 启动策略
-        with self._lock:
-            for s in self._strategies:
-                if s.status == StrategyStatus.INITIALIZING:
-                    s.start()
+        # 仅在交易日激活策略
+        self._activate_for_trading_day(reason="startup")
 
         logger.info("StrategyRunner: 已启动 %d 个策略", len(self._strategies))
 
@@ -151,11 +149,35 @@ class StrategyRunner:
 
     def add_strategy(self, strategy: BaseStrategy) -> None:
         with self._lock:
+            exists = next(
+                (
+                    s for s in self._strategies
+                    if s.strategy_name == strategy.strategy_name
+                    and s.stock_code == strategy.stock_code
+                    and s.status != StrategyStatus.STOPPED
+                ),
+                None,
+            )
+            if exists:
+                logger.info(
+                    "StrategyRunner: 跳过重复策略 %s stock=%s",
+                    strategy.strategy_name,
+                    strategy.stock_code,
+                )
+                return
+
             self._strategies.append(strategy)
+
+        if self._running and self.is_trading_day() and strategy.status == StrategyStatus.INITIALIZING:
+            strategy.start()
+
         logger.info("StrategyRunner: 添加策略 %s stock=%s",
                     strategy.strategy_name, strategy.stock_code)
+        with self._lock:
+            should_subscribe = self._running and self.is_trading_day()
+
         # 订阅该标的
-        if self._data_sub:
+        if self._data_sub and should_subscribe:
             self._data_sub.subscribe_stocks([strategy.stock_code])
 
     def remove_strategy(self, strategy_id: str) -> None:
@@ -179,6 +201,10 @@ class StrategyRunner:
 
     def run_stock_selection(self) -> None:
         """执行选股，为每个选出标的创建策略对象"""
+        if not self.is_trading_day():
+            logger.info("StrategyRunner: 今日非交易日，跳过选股")
+            return
+
         for cls in self._strategy_classes:
             try:
                 configs: List[StrategyConfig] = []
@@ -201,6 +227,8 @@ class StrategyRunner:
             except Exception as e:
                 logger.error("StrategyRunner: 选股异常 [%s]: %s",
                              cls.__name__, e, exc_info=True)
+
+        self._activate_for_trading_day(reason="stock_selection")
 
     # ------------------------------------------------------------------ 持久化
 
@@ -255,7 +283,7 @@ class StrategyRunner:
                 "processpool": APSProcessPoolExecutor(max_workers=2),
             }
             self._scheduler = BlockingScheduler(executors=executors)
-            # 开盘前选股更新股票池
+            # 开盘前刷新当日策略并激活
             self._scheduler.add_job(self.run_stock_selection, "cron",
                                     hour=9, minute=25, id="stock_selection")
             # 收盘后保存状态
@@ -279,8 +307,34 @@ class StrategyRunner:
     def is_trading_time(self) -> bool:
         """判断当前是否在交易时间"""
         now = datetime.now()
+        if not self.is_trading_day(now):
+            return False
         t = now.strftime("%H:%M")
         return (("09:30" <= t <= "11:30") or ("13:00" <= t <= "15:00"))
+
+    def is_trading_day(self, when=None) -> bool:
+        """判断指定日期是否为交易日。"""
+        target = when or datetime.now()
+        return is_market_day(target)
+
+    def _activate_for_trading_day(self, reason: str = "") -> bool:
+        """在交易日激活策略、恢复订阅。"""
+        if not self.is_trading_day():
+            logger.info("StrategyRunner: 今日非交易日，跳过策略激活 [%s]", reason or "unknown")
+            return False
+
+        self._subscribe_all()
+
+        started = 0
+        with self._lock:
+            for strategy in self._strategies:
+                if strategy.status == StrategyStatus.INITIALIZING:
+                    strategy.start()
+                    started += 1
+
+        logger.info("StrategyRunner: 交易日激活完成 [%s]，新增启动 %d 个策略",
+                    reason or "unknown", started)
+        return True
 
     def _subscribe_all(self) -> None:
         """订阅所有策略的标的"""

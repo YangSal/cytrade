@@ -8,13 +8,17 @@ FastAPI 后端 API
 - WebSocket 实时推送
 """
 import asyncio
+import os
 import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 try:
-    from fastapi import FastAPI
+    from fastapi import FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
     _FASTAPI = True
 except ImportError:
     _FASTAPI = False
@@ -31,6 +35,10 @@ _data_manager = None
 _connection_manager = None
 _trade_executor = None
 _ws_manager = None  # WebSocketManager
+
+
+def _get_frontend_dist_dir() -> Path:
+    return Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 
 def init_app_context(strategy_runner=None, position_manager=None,
@@ -91,6 +99,33 @@ def create_app():
     routes._connection_manager = _connection_manager
     routes._trade_executor = _trade_executor
     routes._ws_manager = _ws_manager
+
+    frontend_dist = _get_frontend_dist_dir()
+    index_file = frontend_dist / "index.html"
+    assets_dir = frontend_dist / "assets"
+
+    if index_file.exists():
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="frontend-assets")
+
+        @app.get("/", include_in_schema=False)
+        async def frontend_index():
+            return FileResponse(str(index_file))
+
+        @app.get("/{full_path:path}", include_in_schema=False)
+        async def frontend_spa(full_path: str):
+            if full_path.startswith(("api", "ws")):
+                raise HTTPException(status_code=404, detail="Not Found")
+
+            requested_file = frontend_dist / full_path
+            if requested_file.is_file():
+                return FileResponse(str(requested_file))
+
+            return FileResponse(str(index_file))
+
+        logger.info("FastAPI: 已启用前端静态资源托管 %s", index_file)
+    else:
+        logger.info("FastAPI: 未检测到前端构建产物，跳过静态托管")
 
     return app
 

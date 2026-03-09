@@ -6,7 +6,7 @@
       <el-table-column prop="stock_code" label="标的" />
       <el-table-column prop="status" label="状态">
         <template #default="{ row }">
-          <el-tag :type="tagType(row.status)">{{ row.status }}</el-tag>
+          <el-tag :type="tagType(row.status)">{{ row.status_text || statusText(row.status) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="total_quantity" label="持仓量" />
@@ -27,6 +27,7 @@
 import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { strategyStatusText, strategyStatusTagType } from '../utils/status'
 
 const strategies = ref([])
 
@@ -55,7 +56,8 @@ async function close(row) {
 }
 
 const fmt2 = (_, __, val) => typeof val === 'number' ? val.toFixed(2) : val
-const tagType = s => ({ RUNNING: 'success', PAUSED: 'warning', STOPPED: 'info', ERROR: 'danger' }[s] || '')
+const statusText = strategyStatusText
+const tagType = strategyStatusTagType
 
 onMounted(() => { load(); setInterval(load, 5000) })
 </script>

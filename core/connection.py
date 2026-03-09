@@ -25,6 +25,7 @@ except ImportError:
             self._path = path
             self._session_id = session_id
             self._connected = False
+            self._subscribed = False
 
         def connect(self):
             logger.warning("XtQuantTrader [MOCK] connect() called")
@@ -42,6 +43,10 @@ except ImportError:
 
         def subscribe_callback(self, callback):
             pass
+
+        def subscribe(self, account):
+            self._subscribed = True
+            return 0
 
         def is_connected(self):
             return self._connected
@@ -83,6 +88,12 @@ class ConnectionManager:
         """连接到 QMT 客户端，返回是否成功"""
         with self._lock:
             try:
+                self._stop_heartbeat.set()
+                if self._trader:
+                    try:
+                        self._trader.stop()
+                    except Exception:
+                        pass
                 self._trader = XtQuantTrader(self._qmt_path, self._session_id)
                 self._account = StockAccount(self._account_id)
                 if self._callback:
@@ -90,8 +101,13 @@ class ConnectionManager:
                 self._trader.start()
                 ret = self._trader.connect()
                 if ret == 0:
+                    subscribe_ret = self._trader.subscribe(self._account)
+                    if subscribe_ret != 0:
+                        logger.error("ConnectionManager: 账户订阅失败，返回码: %d", subscribe_ret)
+                        self._connected = False
+                        return False
                     self._connected = True
-                    logger.info("ConnectionManager: 连接 QMT 成功 (session=%d)", self._session_id)
+                    logger.info("ConnectionManager: 连接 QMT 成功并完成账户订阅 (session=%d)", self._session_id)
                     self._start_heartbeat()
                     return True
                 else:
@@ -140,6 +156,11 @@ class ConnectionManager:
         return self._trader
 
     def is_connected(self) -> bool:
+        if self._trader and hasattr(self._trader, "is_connected"):
+            try:
+                return bool(self._trader.is_connected())
+            except Exception:
+                pass
         return self._connected
 
     def register_callback(self, callback) -> None:

@@ -13,6 +13,7 @@ class _MockTrader:
     """完全 Mock 的 XtQuantTrader，connect() 始终返回 0"""
     def __init__(self, path, session_id):
         self._connected = False
+        self._subscribed = False
 
     def start(self):
         pass
@@ -32,6 +33,10 @@ class _MockTrader:
 
     def subscribe_callback(self, cb):
         pass
+
+    def subscribe(self, account):
+        self._subscribed = True
+        return 0
 
 
 class TestConnectionManager(unittest.TestCase):
@@ -56,6 +61,7 @@ class TestConnectionManager(unittest.TestCase):
         self.mgr.connect()
         trader = self.mgr.get_trader()
         self.assertIsNotNone(trader)
+        self.assertTrue(trader._subscribed)
 
     def test_account(self):
         self.mgr.connect()

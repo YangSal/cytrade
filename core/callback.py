@@ -73,18 +73,33 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
             if not self._order_mgr:
                 return
             trade_info = {
-                "trade_id": str(getattr(trade, "traded_id", "") or ""),
-                "xt_order_id": int(getattr(trade, "order_id", 0) or 0),
+                "account_type": int(getattr(trade, "account_type", 0) or 0),
+                "account_id": str(getattr(trade, "account_id", "") or ""),
                 "stock_code": self._xt_to_code(str(trade.stock_code or "")),
-                "direction": str(getattr(trade, "order_type", "BUY")),
-                "price": float(getattr(trade, "traded_price", 0) or 0),
-                "quantity": int(getattr(trade, "traded_volume", 0) or 0),
-                "amount": float(getattr(trade, "traded_amount", 0) or 0),
-                "commission": float(getattr(trade, "commission", 0) or 0),
+                "order_type": int(getattr(trade, "order_type", 0) or 0),
+                "traded_id": str(getattr(trade, "traded_id", "") or ""),
+                "traded_time": int(getattr(trade, "traded_time", 0) or 0),
+                "traded_price": float(getattr(trade, "traded_price", 0) or 0),
+                "traded_volume": int(getattr(trade, "traded_volume", 0) or 0),
+                "traded_amount": float(getattr(trade, "traded_amount", 0) or 0),
+                "order_id": int(getattr(trade, "order_id", 0) or 0),
+                "order_sysid": str(getattr(trade, "order_sysid", "") or ""),
+                "strategy_name": str(getattr(trade, "strategy_name", "") or ""),
+                "order_remark": str(getattr(trade, "order_remark", "") or ""),
+                "direction": int(getattr(trade, "direction", 0) or 0),
+                "offset_flag": int(getattr(trade, "offset_flag", 0) or 0),
+                "commission": 0.0,
             }
-            self._order_mgr.on_trade(trade_info["xt_order_id"], trade_info)
+            trade_info.update({
+                "trade_id": trade_info["traded_id"],
+                "xt_order_id": trade_info["order_id"],
+                "price": trade_info["traded_price"],
+                "quantity": trade_info["traded_volume"],
+                "amount": trade_info["traded_amount"],
+            })
+            self._order_mgr.on_trade(trade_info["order_id"], trade_info)
             logger.info("[ORDER] [TRADE] 成交回报 order_id=%s price=%.3f qty=%d",
-                        trade_info["xt_order_id"], trade_info["price"], trade_info["quantity"])
+                        trade_info["order_id"], trade_info["traded_price"], trade_info["traded_volume"])
         except Exception as e:
             logger.error("[Callback] on_stock_trade 异常: %s", e, exc_info=True)
 
@@ -96,7 +111,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
             xt_id = int(getattr(order_error, "order_id", 0) or 0)
             err_msg = str(getattr(order_error, "error_msg", "unknown") or "unknown")
             logger.error("[Callback] 下单失败 order_id=%s msg=%s", xt_id, err_msg)
-            self._order_mgr.update_order_status(xt_order_id=xt_id, status=OrderStatus.FAILED)
+            self._order_mgr.update_order_status(xt_order_id=xt_id, status=OrderStatus.JUNK)
         except Exception as e:
             logger.error("[Callback] on_order_error 异常: %s", e, exc_info=True)
 
@@ -136,16 +151,19 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
     def _map_order_status(xt_status) -> OrderStatus:
         """将 xtquant 委托状态映射为内部 OrderStatus"""
         mapping = {
-            50: OrderStatus.SUBMITTED,
-            51: OrderStatus.SUBMITTED,
-            52: OrderStatus.PARTIALLY_FILLED,
-            53: OrderStatus.FILLED,
-            54: OrderStatus.CANCELLED,
-            55: OrderStatus.CANCELLED,
-            56: OrderStatus.REJECTED,
-            57: OrderStatus.FAILED,
+            48: OrderStatus.UNREPORTED,
+            49: OrderStatus.WAIT_REPORTING,
+            50: OrderStatus.REPORTED,
+            51: OrderStatus.REPORTED_CANCEL,
+            52: OrderStatus.PARTSUCC_CANCEL,
+            53: OrderStatus.PART_CANCEL,
+            54: OrderStatus.CANCELED,
+            55: OrderStatus.PART_SUCC,
+            56: OrderStatus.SUCCEEDED,
+            57: OrderStatus.JUNK,
+            255: OrderStatus.UNKNOWN,
         }
-        return mapping.get(int(xt_status or 0), OrderStatus.SUBMITTED)
+        return mapping.get(int(xt_status or 0), OrderStatus.UNKNOWN)
 
     @staticmethod
     def _xt_to_code(xt_code: str) -> str:

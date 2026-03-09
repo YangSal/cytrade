@@ -19,6 +19,7 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config.settings import Settings
+from config.fee_schedule import FeeSchedule
 from monitor.logger import LogManager, get_logger
 from data.manager import DataManager
 from core.connection import ConnectionManager
@@ -59,6 +60,13 @@ def build_app(strategy_classes=None, settings: Settings = None):
     if settings.ENABLE_REMOTE_DB:
         data_mgr.set_remote_enabled(True)
 
+    fee_schedule = FeeSchedule(
+        file_path=settings.FEE_TABLE_PATH,
+        default_buy_fee_rate=settings.DEFAULT_BUY_FEE_RATE,
+        default_sell_fee_rate=settings.DEFAULT_SELL_FEE_RATE,
+        default_stamp_tax_rate=settings.DEFAULT_STAMP_TAX_RATE,
+    )
+
     # ---- 交易连接 ----
     conn_mgr = ConnectionManager(
         qmt_path=settings.QMT_PATH,
@@ -70,12 +78,13 @@ def build_app(strategy_classes=None, settings: Settings = None):
     )
 
     # ---- 订单管理 ----
-    order_mgr = OrderManager(data_manager=data_mgr)
+    order_mgr = OrderManager(data_manager=data_mgr, fee_schedule=fee_schedule)
 
     # ---- 持仓管理 ----
     pos_mgr = PositionManager(
         cost_method=settings.COST_METHOD,
         data_manager=data_mgr,
+        fee_schedule=fee_schedule,
     )
 
     # ---- 注册回调链：成交 → 持仓 ----
@@ -134,6 +143,7 @@ def build_app(strategy_classes=None, settings: Settings = None):
         "settings": settings,
         "log_mgr": log_mgr,
         "data_mgr": data_mgr,
+        "fee_schedule": fee_schedule,
         "conn_mgr": conn_mgr,
         "order_mgr": order_mgr,
         "pos_mgr": pos_mgr,
@@ -177,6 +187,7 @@ def run(strategy_classes=None, settings: Settings = None):
     # ---- Web 服务 ----
     try:
         from web.backend.main import init_app_context, run_server
+        from web.backend import routes as web_routes
         init_app_context(
             strategy_runner=runner,
             position_manager=ctx["pos_mgr"],
@@ -186,6 +197,8 @@ def run(strategy_classes=None, settings: Settings = None):
             trade_executor=ctx["trade_exec"],
         )
         run_server(host=settings.WEB_HOST, port=settings.WEB_PORT)
+        if getattr(web_routes, "_ws_manager", None):
+            ctx["order_mgr"].set_trade_callback(web_routes._ws_manager.notify_trade_update)
     except Exception as e:
         logger.warning("Web 服务未启动（可能缺少 fastapi/uvicorn）: %s", e)
 

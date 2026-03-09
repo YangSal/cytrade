@@ -22,6 +22,7 @@ except ImportError:
     WebSocketState = None
 
 from monitor.logger import get_logger
+from web.backend.status_map import order_status_text
 
 logger = get_logger("system")
 
@@ -92,6 +93,7 @@ class WebSocketManager:
             "type": "order_update",
             "order_uuid": order.order_uuid,
             "status": order.status.value,
+            "status_text": order_status_text(order.status.value),
             "filled_quantity": order.filled_quantity,
             "filled_avg_price": order.filled_avg_price,
             "time": datetime.now().isoformat(),
@@ -106,6 +108,37 @@ class WebSocketManager:
             "total_quantity": pos.total_quantity,
             "avg_cost": pos.avg_cost,
             "unrealized_pnl": pos.unrealized_pnl,
+            "time": datetime.now().isoformat(),
+        })
+
+    def notify_trade_update(self, trade) -> None:
+        """发送成交更新（包含 XtTrade 关键字段）"""
+        self.broadcast_sync({
+            "type": "trade_update",
+            "trade_id": trade.trade_id,
+            "xt_order_id": trade.xt_order_id,
+            "order_uuid": trade.order_uuid,
+            "strategy_id": trade.strategy_id,
+            "strategy_name": trade.strategy_name,
+            "stock_code": trade.stock_code,
+            "account_type": getattr(trade, "account_type", 0),
+            "account_id": getattr(trade, "account_id", ""),
+            "order_type": getattr(trade, "order_type", 0),
+            "traded_time": getattr(trade, "xt_traded_time", 0),
+            "order_sysid": getattr(trade, "order_sysid", ""),
+            "order_remark": getattr(trade, "order_remark", ""),
+            "xt_direction": getattr(trade, "xt_direction", 0),
+            "offset_flag": getattr(trade, "offset_flag", 0),
+            "direction": trade.direction.value,
+            "price": trade.price,
+            "quantity": trade.quantity,
+            "amount": trade.amount,
+            "commission": trade.commission,
+            "buy_commission": getattr(trade, "buy_commission", 0.0),
+            "sell_commission": getattr(trade, "sell_commission", 0.0),
+            "stamp_tax": getattr(trade, "stamp_tax", 0.0),
+            "total_fee": getattr(trade, "total_fee", getattr(trade, "commission", 0.0)),
+            "is_t0": bool(getattr(trade, "is_t0", False)),
             "time": datetime.now().isoformat(),
         })
 

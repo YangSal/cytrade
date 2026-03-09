@@ -276,13 +276,14 @@ class BaseStrategy(ABC):
                 return
             from config.enums import OrderStatus, OrderDirection
             if order.order_uuid in self._pending_orders:
-                if order.status in (OrderStatus.FILLED, OrderStatus.CANCELLED,
-                                    OrderStatus.REJECTED, OrderStatus.FAILED):
+                if order.status in (OrderStatus.SUCCEEDED, OrderStatus.CANCELED,
+                                    OrderStatus.PART_CANCEL, OrderStatus.JUNK,
+                                    OrderStatus.UNKNOWN):
                     self._pending_orders.pop(order.order_uuid, None)
 
             # 卖出全部成交后，若无仓位则自动停止策略
             if (order.direction == OrderDirection.SELL and
-                    order.status == OrderStatus.FILLED and
+                    order.status == OrderStatus.SUCCEEDED and
                     self._position_mgr):
                 pos = self._position_mgr.get_position(self.strategy_id)
                 if not pos or pos.total_quantity <= 0:

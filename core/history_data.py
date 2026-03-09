@@ -1,12 +1,25 @@
+"""历史数据模块。
+
+提供批量历史数据下载与独立读取能力：
+- 下载：xtdata.download_history_data2
+- 读取：xtdata.get_market_data_ex
 """
-历史数据模块
-通过 xtdata.download_history_data + xtdata.get_market_data_ex 获取历史行情
-"""
+from __future__ import annotations
+
+from typing import Callable, Dict, List, Optional
+
 import pandas as pd
-from typing import Dict, List, Optional
+
 from monitor.logger import get_logger
 
 logger = get_logger("system")
+
+try:
+    from tqdm.auto import tqdm
+    _TQDM_AVAILABLE = True
+except ImportError:
+    tqdm = None  # type: ignore
+    _TQDM_AVAILABLE = False
 
 try:
     from xtquant import xtdata
@@ -23,27 +36,77 @@ class HistoryDataManager:
     _SH_PREFIXES = ("6", "5")   # 上海：6开头（主板）、5开头（ETF）
     _SZ_PREFIXES = ("0", "3")   # 深圳：0开头（主板）、3开头（创业板）
 
-    def get_history_data(
+    def download_history_data(
+        self,
+        stock_list: List[str],
+        start_date: str = "",
+        end_date: str = "",
+        period: str = "1d",
+        callback: Optional[Callable[[dict], None]] = None,
+        incrementally=None,
+        show_progress: bool = True,
+    ) -> bool:
+        """批量下载历史行情到本地缓存。"""
+        if not stock_list:
+            return True
+
+        xt_codes = [self.stock_code_to_xt(c) for c in stock_list]
+
+        if not _XT_AVAILABLE:
+            logger.warning("HistoryDataManager: xtquant 未安装，跳过历史数据下载")
+            return False
+
+        progress = None
+        if show_progress and _TQDM_AVAILABLE:
+            progress = tqdm(total=len(xt_codes), desc=f"下载历史数据[{period}]", unit="code")
+
+        state = {"finished": 0}
+
+        def _on_progress(data: dict) -> None:
+            finished = int(data.get("finished", 0) or 0)
+            delta = max(0, finished - state["finished"])
+            state["finished"] = finished
+            if progress is not None and delta > 0:
+                progress.update(delta)
+            if progress is not None:
+                stockcode = data.get("stockcode", "")
+                message = data.get("message", "")
+                progress.set_postfix_str(f"{stockcode} {message}".strip())
+            if callback:
+                callback(data)
+
+        try:
+            xtdata.download_history_data2(
+                xt_codes,
+                period,
+                start_time=start_date,
+                end_time=end_date,
+                callback=_on_progress,
+                incrementally=incrementally,
+            )
+            logger.info(
+                "HistoryDataManager: %d 只股票历史数据下载完成 (%s~%s %s)",
+                len(xt_codes), start_date or "-", end_date or "-", period,
+            )
+            return True
+        except Exception as e:
+            logger.error("HistoryDataManager: 下载数据失败: %s", e, exc_info=True)
+            return False
+        finally:
+            if progress is not None:
+                progress.close()
+
+    def read_history_data(
         self,
         stock_list: List[str],
         start_date: str,
         end_date: str,
         period: str = "1d",
         dividend_type: str = "front",
+        field_list: Optional[List[str]] = None,
+        fill_data: bool = True,
     ) -> Dict[str, pd.DataFrame]:
-        """
-        获取历史行情数据
-
-        Args:
-            stock_list:    6位数字股票代码列表
-            start_date:    开始日期 'YYYYMMDD'
-            end_date:      结束日期 'YYYYMMDD'
-            period:        数据周期 1m/5m/15m/30m/60m/1d
-            dividend_type: 复权方式 none/front/back
-
-        Returns:
-            {stock_code: DataFrame}  （key 为6位代码）
-        """
+        """从本地缓存读取历史行情。"""
         if not stock_list:
             return {}
 
@@ -54,40 +117,65 @@ class HistoryDataManager:
             return {c: pd.DataFrame() for c in stock_list}
 
         try:
-            # 先下载确保本地缓存最新
-            for xt_code in xt_codes:
-                xtdata.download_history_data(
-                    xt_code, period=period,
-                    start_time=start_date, end_time=end_date
-                )
-
             raw: dict = xtdata.get_market_data_ex(
-                field_list=[],
+                field_list=field_list or [],
                 stock_list=xt_codes,
                 period=period,
                 start_time=start_date,
                 end_time=end_date,
                 dividend_type=dividend_type,
-                fill_data=True,
+                fill_data=fill_data,
             )
 
-            result: Dict[str, pd.DataFrame] = {}
+            result: Dict[str, pd.DataFrame] = {c: pd.DataFrame() for c in stock_list}
             for xt_code, df in raw.items():
                 code = self.xt_code_to_stock(xt_code)
-                if isinstance(df, pd.DataFrame) and not df.empty:
-                    result[code] = df
-                else:
-                    result[code] = pd.DataFrame()
+                result[code] = df if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()
 
             logger.info(
-                "HistoryDataManager: %d 只股票历史数据已获取 (%s~%s %s)",
-                len(result), start_date, end_date, period
+                "HistoryDataManager: %d 只股票历史数据已读取 (%s~%s %s %s)",
+                len(result), start_date, end_date, period, dividend_type
             )
             return result
 
         except Exception as e:
-            logger.error("HistoryDataManager: 获取数据失败: %s", e, exc_info=True)
+            logger.error("HistoryDataManager: 读取数据失败: %s", e, exc_info=True)
             return {c: pd.DataFrame() for c in stock_list}
+
+    def get_history_data(
+        self,
+        stock_list: List[str],
+        start_date: str,
+        end_date: str,
+        period: str = "1d",
+        dividend_type: str = "front",
+        field_list: Optional[List[str]] = None,
+        fill_data: bool = True,
+        callback: Optional[Callable[[dict], None]] = None,
+        incrementally=None,
+        show_progress: bool = True,
+    ) -> Dict[str, pd.DataFrame]:
+        """兼容接口：先下载，再读取历史行情。"""
+        ok = self.download_history_data(
+            stock_list=stock_list,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+            callback=callback,
+            incrementally=incrementally,
+            show_progress=show_progress,
+        )
+        if not ok and not _XT_AVAILABLE:
+            return {c: pd.DataFrame() for c in stock_list}
+        return self.read_history_data(
+            stock_list=stock_list,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+            dividend_type=dividend_type,
+            field_list=field_list,
+            fill_data=fill_data,
+        )
 
     @classmethod
     def stock_code_to_xt(cls, code: str) -> str:

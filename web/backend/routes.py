@@ -13,7 +13,13 @@ except ImportError:
 
 from web.backend.schemas import (
     StrategyInfo, PositionDetail, PositionSummary,
-    OrderInfo, SystemStatus, ActionResponse
+    OrderInfo, TradeInfo, SystemStatus, ActionResponse
+)
+from web.backend.status_map import (
+    order_status_text,
+    strategy_status_text,
+    order_direction_text,
+    order_type_text,
 )
 
 # 依赖由 main.py 注入
@@ -50,6 +56,7 @@ if _FASTAPI and router is not None:
                 strategy_name=s.strategy_name,
                 stock_code=s.stock_code,
                 status=s.status.value,
+                status_text=strategy_status_text(s.status.value),
                 unrealized_pnl=pos.unrealized_pnl if pos else 0.0,
                 realized_pnl=pos.realized_pnl if pos else 0.0,
                 total_quantity=pos.total_quantity if pos else 0,
@@ -71,6 +78,7 @@ if _FASTAPI and router is not None:
             strategy_name=s.strategy_name,
             stock_code=s.stock_code,
             status=s.status.value,
+            status_text=strategy_status_text(s.status.value),
             unrealized_pnl=pos.unrealized_pnl if pos else 0.0,
             realized_pnl=pos.realized_pnl if pos else 0.0,
             total_quantity=pos.total_quantity if pos else 0,
@@ -124,6 +132,7 @@ if _FASTAPI and router is not None:
                 stock_code=pos.stock_code,
                 total_quantity=pos.total_quantity,
                 available_quantity=pos.available_quantity,
+                is_t0=pos.is_t0,
                 avg_cost=pos.avg_cost,
                 current_price=pos.current_price,
                 market_value=pos.market_value,
@@ -131,6 +140,10 @@ if _FASTAPI and router is not None:
                 unrealized_pnl_ratio=pos.unrealized_pnl_ratio,
                 realized_pnl=pos.realized_pnl,
                 total_commission=pos.total_commission,
+                total_buy_commission=pos.total_buy_commission,
+                total_sell_commission=pos.total_sell_commission,
+                total_stamp_tax=pos.total_stamp_tax,
+                total_fees=pos.total_fees,
                 update_time=pos.update_time.isoformat(),
             ))
         return result
@@ -158,10 +171,13 @@ if _FASTAPI and router is not None:
                 strategy_name=o.strategy_name,
                 stock_code=o.stock_code,
                 direction=o.direction.value,
+                direction_text=order_direction_text(o.direction.value),
                 order_type=o.order_type.value,
+                order_type_text=order_type_text(o.order_type.value),
                 price=o.price,
                 quantity=o.quantity,
                 status=o.status.value,
+                status_text=order_status_text(o.status.value),
                 filled_quantity=o.filled_quantity,
                 filled_avg_price=o.filled_avg_price,
                 filled_amount=o.filled_amount,
@@ -185,10 +201,13 @@ if _FASTAPI and router is not None:
             strategy_name=o.strategy_name,
             stock_code=o.stock_code,
             direction=o.direction.value,
+            direction_text=order_direction_text(o.direction.value),
             order_type=o.order_type.value,
+            order_type_text=order_type_text(o.order_type.value),
             price=o.price,
             quantity=o.quantity,
             status=o.status.value,
+            status_text=order_status_text(o.status.value),
             filled_quantity=o.filled_quantity,
             filled_avg_price=o.filled_avg_price,
             filled_amount=o.filled_amount,
@@ -219,13 +238,45 @@ if _FASTAPI and router is not None:
 
     # ------------------------------------------------------------------ 成交
 
-    @router.get("/trades", tags=["成交"])
+    @router.get("/trades", response_model=List[TradeInfo], tags=["成交"])
     async def get_trades(strategy_id: Optional[str] = Query(None),
                          start_date: Optional[str] = Query(None),
                          end_date: Optional[str] = Query(None)):
         if not _data_manager:
             return []
-        return _data_manager.query_trades(strategy_id, start_date, end_date)
+        records = _data_manager.query_trades(strategy_id, start_date, end_date)
+        result = []
+        for t in records:
+            direction = str(t.get("direction", "") or "")
+            result.append(TradeInfo(
+                trade_id=str(t.get("trade_id", "") or ""),
+                xt_order_id=int(t.get("xt_order_id", 0) or 0),
+                order_uuid=str(t.get("order_uuid", "") or ""),
+                strategy_id=str(t.get("strategy_id", "") or ""),
+                strategy_name=str(t.get("strategy_name", "") or ""),
+                stock_code=str(t.get("stock_code", "") or ""),
+                account_type=int(t.get("account_type", 0) or 0),
+                account_id=str(t.get("account_id", "") or ""),
+                order_type=int(t.get("order_type", 0) or 0),
+                traded_time=int(t.get("traded_time", 0) or 0),
+                order_sysid=str(t.get("order_sysid", "") or ""),
+                order_remark=str(t.get("order_remark", "") or ""),
+                xt_direction=int(t.get("xt_direction", 0) or 0),
+                offset_flag=int(t.get("offset_flag", 0) or 0),
+                direction=direction,
+                direction_text=order_direction_text(direction),
+                price=float(t.get("price", 0) or 0),
+                quantity=int(t.get("quantity", 0) or 0),
+                amount=float(t.get("amount", 0) or 0),
+                commission=float(t.get("commission", 0) or 0),
+                buy_commission=float(t.get("buy_commission", 0) or 0),
+                sell_commission=float(t.get("sell_commission", 0) or 0),
+                stamp_tax=float(t.get("stamp_tax", 0) or 0),
+                total_fee=float(t.get("total_fee", t.get("commission", 0)) or 0),
+                is_t0=bool(t.get("is_t0", 0)),
+                trade_time=str(t.get("trade_time", "") or ""),
+            ))
+        return result
 
     # ------------------------------------------------------------------ 系统
 

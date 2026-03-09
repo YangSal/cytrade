@@ -19,17 +19,30 @@ logger = get_logger("system")
 _DDL = """
 CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_type INTEGER DEFAULT 0,
+    account_id   TEXT DEFAULT '',
+    order_type   INTEGER DEFAULT 0,
     trade_id     TEXT,
+    traded_time  INTEGER DEFAULT 0,
     order_uuid   TEXT NOT NULL,
     xt_order_id  INTEGER,
+    order_sysid  TEXT DEFAULT '',
     strategy_name TEXT NOT NULL,
     strategy_id  TEXT NOT NULL,
+    order_remark TEXT DEFAULT '',
     stock_code   TEXT NOT NULL,
     direction    TEXT NOT NULL,
+    xt_direction INTEGER DEFAULT 0,
+    offset_flag  INTEGER DEFAULT 0,
     quantity     INTEGER NOT NULL,
     price        REAL NOT NULL,
     amount       REAL NOT NULL,
     commission   REAL DEFAULT 0,
+    buy_commission REAL DEFAULT 0,
+    sell_commission REAL DEFAULT 0,
+    stamp_tax    REAL DEFAULT 0,
+    total_fee    REAL DEFAULT 0,
+    is_t0        INTEGER DEFAULT 0,
     remark       TEXT,
     trade_time   TIMESTAMP,
     create_time  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -103,6 +116,7 @@ class DataManager:
             with self._get_conn() as conn:
                 conn.executescript(_DDL)
                 self._migrate_xt_order_id_columns(conn)
+                self._migrate_trade_extra_columns(conn)
             logger.info("DataManager: SQLite 初始化完成 — %s", self._db_path)
         except Exception as e:
             logger.error("DataManager: 初始化数据库失败: %s", e, exc_info=True)
@@ -112,15 +126,39 @@ class DataManager:
         """保存成交记录"""
         sql = """
         INSERT INTO trades
-          (trade_id, order_uuid, xt_order_id, strategy_name, strategy_id,
-           stock_code, direction, quantity, price, amount, commission, trade_time)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+          (account_type, account_id, order_type, trade_id, traded_time,
+           order_uuid, xt_order_id, order_sysid, strategy_name, strategy_id,
+           order_remark, stock_code, direction, xt_direction, offset_flag,
+              quantity, price, amount, commission, buy_commission, sell_commission,
+              stamp_tax, total_fee, is_t0, trade_time)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """
         params = (
-            trade.trade_id, trade.order_uuid, int(trade.xt_order_id or 0),
-            trade.strategy_name, trade.strategy_id, trade.stock_code,
-            str(trade.direction.value), trade.quantity, trade.price,
-            trade.amount, trade.commission, self._to_yyyymmdd(trade.trade_time)
+            int(getattr(trade, "account_type", 0) or 0),
+            str(getattr(trade, "account_id", "") or ""),
+            int(getattr(trade, "order_type", 0) or 0),
+            trade.trade_id,
+            int(getattr(trade, "xt_traded_time", 0) or 0),
+            trade.order_uuid,
+            int(trade.xt_order_id or 0),
+            str(getattr(trade, "order_sysid", "") or ""),
+            trade.strategy_name,
+            trade.strategy_id,
+            str(getattr(trade, "order_remark", "") or ""),
+            trade.stock_code,
+            str(trade.direction.value),
+            int(getattr(trade, "xt_direction", 0) or 0),
+            int(getattr(trade, "offset_flag", 0) or 0),
+            trade.quantity,
+            trade.price,
+            trade.amount,
+            trade.commission,
+            float(getattr(trade, "buy_commission", 0.0) or 0.0),
+            float(getattr(trade, "sell_commission", 0.0) or 0.0),
+            float(getattr(trade, "stamp_tax", 0.0) or 0.0),
+            float(getattr(trade, "total_fee", 0.0) or 0.0),
+            1 if bool(getattr(trade, "is_t0", False)) else 0,
+            self._to_yyyymmdd(trade.trade_time)
         )
         self._execute(sql, params)
 
@@ -422,6 +460,30 @@ class DataManager:
         CREATE INDEX IF NOT EXISTS idx_orders_strategy_id  ON orders(strategy_id);
         CREATE INDEX IF NOT EXISTS idx_orders_status       ON orders(status);
         """)
+
+    @staticmethod
+    def _migrate_trade_extra_columns(conn: sqlite3.Connection) -> None:
+        """为历史 trades 表补齐 XtTrade 扩展字段。"""
+        rows = conn.execute("PRAGMA table_info(trades)").fetchall()
+        existing = {str(row[1]).lower() for row in rows}
+        required_columns = {
+            "account_type": "INTEGER DEFAULT 0",
+            "account_id": "TEXT DEFAULT ''",
+            "order_type": "INTEGER DEFAULT 0",
+            "traded_time": "INTEGER DEFAULT 0",
+            "order_sysid": "TEXT DEFAULT ''",
+            "order_remark": "TEXT DEFAULT ''",
+            "xt_direction": "INTEGER DEFAULT 0",
+            "offset_flag": "INTEGER DEFAULT 0",
+            "buy_commission": "REAL DEFAULT 0",
+            "sell_commission": "REAL DEFAULT 0",
+            "stamp_tax": "REAL DEFAULT 0",
+            "total_fee": "REAL DEFAULT 0",
+            "is_t0": "INTEGER DEFAULT 0",
+        }
+        for name, ddl in required_columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE trades ADD COLUMN {name} {ddl}")
 
     @staticmethod
     def _to_yyyymmdd(value) -> str:

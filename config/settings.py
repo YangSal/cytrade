@@ -5,6 +5,11 @@
 import json
 import os
 
+from config.enums import SubscriptionPeriod
+
+
+_CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def _env_str(name: str, default: str = "") -> str:
     return os.getenv(name, default)
@@ -55,6 +60,25 @@ def _env_json_dict(name: str, default: dict) -> dict:
         return default
 
 
+def _env_enum(name: str, enum_cls, default):
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return enum_cls(raw)
+    except ValueError:
+        return default
+
+
+def _coerce_subscription_period(value) -> SubscriptionPeriod:
+    if isinstance(value, SubscriptionPeriod):
+        return value
+    try:
+        return SubscriptionPeriod(str(value))
+    except ValueError:
+        return SubscriptionPeriod.TICK
+
+
 class Settings:
     # ---- QMT 连接 ----
     QMT_PATH: str = _env_str("QMT_PATH", "")
@@ -62,7 +86,9 @@ class Settings:
     ACCOUNT_PASSWORD: str = _env_str("ACCOUNT_PASSWORD", "")
 
     # ---- 数据订阅 ----
-    SUBSCRIPTION_PERIOD: str = _env_str("SUBSCRIPTION_PERIOD", "tick")          # tick / 1m / 5m
+    SUBSCRIPTION_PERIOD: SubscriptionPeriod = _env_enum(
+        "SUBSCRIPTION_PERIOD", SubscriptionPeriod, SubscriptionPeriod.TICK
+    )
     DATA_LATENCY_THRESHOLD_SEC: float = _env_float("DATA_LATENCY_THRESHOLD_SEC", 10.0)   # 数据延迟告警阈值（秒）
     STRATEGY_PROCESS_THRESHOLD_MS: float = _env_float("STRATEGY_PROCESS_THRESHOLD_MS", 200)  # 单次策略处理超时阈值（毫秒）
 
@@ -74,6 +100,10 @@ class Settings:
 
     # ---- 持仓管理 ----
     COST_METHOD: str = _env_str("COST_METHOD", "moving_average")        # moving_average / fifo
+    FEE_TABLE_PATH: str = _env_str("FEE_TABLE_PATH", os.path.join(_CONFIG_DIR, "fee_rates.csv"))
+    DEFAULT_BUY_FEE_RATE: float = _env_float("DEFAULT_BUY_FEE_RATE", 0.0001)
+    DEFAULT_SELL_FEE_RATE: float = _env_float("DEFAULT_SELL_FEE_RATE", 0.0001)
+    DEFAULT_STAMP_TAX_RATE: float = _env_float("DEFAULT_STAMP_TAX_RATE", 0.0003)
 
     # ---- 数据持久化 ----
     SQLITE_DB_PATH: str = _env_str("SQLITE_DB_PATH", "./data/db/cytrade2.db")
@@ -116,6 +146,8 @@ class Settings:
         """支持用关键字参数覆盖默认配置"""
         for k, v in overrides.items():
             if hasattr(self, k):
+                if k == "SUBSCRIPTION_PERIOD":
+                    v = _coerce_subscription_period(v)
                 setattr(self, k, v)
             else:
                 raise ValueError(f"Unknown config key: {k}")

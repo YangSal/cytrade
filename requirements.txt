@@ -13,3 +13,4 @@ websockets>=11.0
 python-json-logger>=2.0
 loguru>=0.7
 psycopg2-binary>=2.9
+tqdm>=4.66

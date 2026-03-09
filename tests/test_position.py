@@ -24,6 +24,7 @@ def _trade(strategy_id, code, direction, price, qty, commission=0.0):
         quantity=qty,
         amount=price * qty,
         commission=commission,
+        total_fee=commission,
     )
 
 
@@ -39,6 +40,7 @@ class TestPositionMovingAvg(unittest.TestCase):
         pos = self.mgr.get_position("s1")
         self.assertEqual(pos.total_quantity, 1000)
         self.assertAlmostEqual(pos.avg_cost, 10.0)
+        self.assertEqual(pos.available_quantity, 0)
 
     def test_buy_twice_moving_avg(self):
         self.mgr.on_trade_callback(_trade("s1", "000001", OrderDirection.BUY, 10.0, 1000))
@@ -74,6 +76,29 @@ class TestPositionMovingAvg(unittest.TestCase):
         self.mgr.on_trade_callback(_trade("s2", "600000", OrderDirection.BUY, 20.0, 500))
         s = self.mgr.get_position_summary()
         self.assertEqual(s["positions_count"], 2)
+
+    def test_buy_fee_included_in_cost(self):
+        self.mgr.on_trade_callback(_trade("s1", "000001", OrderDirection.BUY, 10.0, 100, commission=1.0))
+        pos = self.mgr.get_position("s1")
+        self.assertAlmostEqual(pos.total_cost, 1001.0)
+        self.assertAlmostEqual(pos.avg_cost, 10.01)
+        self.assertAlmostEqual(pos.total_fees, 1.0)
+
+    def test_sell_fee_reduces_realized_pnl(self):
+        self.mgr.on_trade_callback(_trade("s1", "000001", OrderDirection.BUY, 10.0, 100, commission=1.0))
+        self.mgr.restore_position("s1", self.mgr.get_position("s1"))
+        self.mgr.on_trade_callback(_trade("s1", "000001", OrderDirection.SELL, 11.0, 100, commission=2.0))
+        pos = self.mgr.get_position("s1")
+        self.assertAlmostEqual(pos.realized_pnl, 97.0)
+
+    def test_t0_buy_increases_available_quantity(self):
+        fee_schedule = type("FeeScheduleStub", (), {"is_t0_security": staticmethod(lambda code: True)})()
+        mgr = PositionManager(cost_method="moving_average", fee_schedule=fee_schedule)
+        t = _trade("s1", "159001", OrderDirection.BUY, 1.0, 100)
+        mgr.on_trade_callback(t)
+        pos = mgr.get_position("s1")
+        self.assertTrue(pos.is_t0)
+        self.assertEqual(pos.available_quantity, 100)
 
 
 class TestPositionFifo(unittest.TestCase):

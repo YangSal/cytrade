@@ -18,13 +18,17 @@ class OrderType(str, Enum):
 
 
 class OrderStatus(str, Enum):
-    PENDING = "PENDING"                          # 待提交
-    SUBMITTED = "SUBMITTED"                      # 已提交
-    PARTIALLY_FILLED = "PARTIALLY_FILLED"        # 部分成交
-    FILLED = "FILLED"                            # 全部成交
-    CANCELLED = "CANCELLED"                      # 已撤单
-    REJECTED = "REJECTED"                        # 被拒绝
-    FAILED = "FAILED"                            # 下单失败
+    UNREPORTED = "UNREPORTED"                    # 未报（48）
+    WAIT_REPORTING = "WAIT_REPORTING"            # 待报（49）
+    REPORTED = "REPORTED"                        # 已报（50）
+    REPORTED_CANCEL = "REPORTED_CANCEL"          # 已报待撤（51）
+    PARTSUCC_CANCEL = "PARTSUCC_CANCEL"          # 部成待撤（52）
+    PART_CANCEL = "PART_CANCEL"                  # 部撤（53）
+    CANCELED = "CANCELED"                        # 已撤（54）
+    PART_SUCC = "PART_SUCC"                      # 部成（55）
+    SUCCEEDED = "SUCCEEDED"                      # 已成（56）
+    JUNK = "JUNK"                                # 废单（57）
+    UNKNOWN = "UNKNOWN"                          # 未知（255）
 
 
 class StrategyStatus(str, Enum):

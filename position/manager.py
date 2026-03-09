@@ -19,10 +19,11 @@ logger = get_logger("trade")
 class PositionManager:
     """持仓管理器"""
 
-    def __init__(self, cost_method: str = "moving_average", data_manager=None):
+    def __init__(self, cost_method: str = "moving_average", data_manager=None, fee_schedule=None):
         self._positions: Dict[str, PositionInfo] = {}   # {strategy_id: PositionInfo}
         self._cost_method = CostMethod(cost_method)
         self._data_mgr = data_manager
+        self._fee_schedule = fee_schedule
         self._lock = threading.Lock()
 
     # ------------------------------------------------------------------ 成交回调
@@ -37,17 +38,23 @@ class PositionManager:
                         strategy_id=strategy_id,
                         strategy_name=trade.strategy_name,
                         stock_code=trade.stock_code,
+                        is_t0=self._resolve_is_t0(trade.stock_code, trade),
                     )
                     self._positions[strategy_id] = pos
                 else:
                     pos = self._positions[strategy_id]
+                    pos.is_t0 = self._resolve_is_t0(pos.stock_code, trade)
 
                 if trade.direction == OrderDirection.BUY:
                     self._apply_buy(pos, trade)
                 else:
                     self._apply_sell(pos, trade)
 
-                pos.total_commission += trade.commission
+                pos.total_buy_commission += float(getattr(trade, "buy_commission", 0.0) or 0.0)
+                pos.total_sell_commission += float(getattr(trade, "sell_commission", 0.0) or 0.0)
+                pos.total_stamp_tax += float(getattr(trade, "stamp_tax", 0.0) or 0.0)
+                pos.total_fees += self._trade_total_fee(trade)
+                pos.total_commission = pos.total_fees
                 pos.update_time = datetime.now()
 
             logger.info(
@@ -85,6 +92,9 @@ class PositionManager:
             total_unrealized = sum(p.unrealized_pnl for p in self._positions.values())
             total_realized = sum(p.realized_pnl for p in self._positions.values())
             total_commission = sum(p.total_commission for p in self._positions.values())
+            total_buy_commission = sum(p.total_buy_commission for p in self._positions.values())
+            total_sell_commission = sum(p.total_sell_commission for p in self._positions.values())
+            total_stamp_tax = sum(p.total_stamp_tax for p in self._positions.values())
             return {
                 "positions_count": len(self._positions),
                 "total_market_value": total_market,
@@ -92,6 +102,10 @@ class PositionManager:
                 "total_unrealized_pnl": total_unrealized,
                 "total_realized_pnl": total_realized,
                 "total_commission": total_commission,
+                "total_buy_commission": total_buy_commission,
+                "total_sell_commission": total_sell_commission,
+                "total_stamp_tax": total_stamp_tax,
+                "total_fees": total_commission,
                 "total_pnl": total_unrealized + total_realized,
             }
 
@@ -116,8 +130,9 @@ class PositionManager:
     def restore_position(self, strategy_id: str, position: PositionInfo) -> None:
         """恢复快照中的持仓（带锁保护）"""
         with self._lock:
-            # T+1: 设置可用持仓为总持仓（昨日持仓今日开始可用）
+            position.is_t0 = self._resolve_is_t0(position.stock_code, position)
             position.available_quantity = position.total_quantity
+            position.total_commission = position.total_fees or position.total_commission
             self._positions[strategy_id] = position
         logger.info(
             "PositionManager: 持仓已恢复 strategy=%s code=%s qty=%d avg_cost=%.3f",
@@ -130,28 +145,33 @@ class PositionManager:
         qty = trade.quantity
         price = trade.price
         amount = trade.amount or (price * qty)
+        total_fee = self._trade_total_fee(trade)
 
         if self._cost_method == CostMethod.MOVING_AVERAGE:
-            pos.total_cost += amount
+            pos.total_cost += amount + total_fee
             pos.total_quantity += qty
-            # T+1: 当日买入不增加可用持仓，由跨日恢复时解锁
-            # pos.available_quantity 不在此处增加
+            if pos.is_t0:
+                pos.available_quantity += qty
             pos.avg_cost = pos.total_cost / pos.total_quantity if pos.total_quantity > 0 else 0
         else:  # FIFO
-            pos.fifo_lots.append(FifoLot(quantity=qty, cost_price=price))
-            pos.total_cost += amount
+            lot_cost = (amount + total_fee) / qty if qty > 0 else price
+            pos.fifo_lots.append(FifoLot(quantity=qty, cost_price=lot_cost))
+            pos.total_cost += amount + total_fee
             pos.total_quantity += qty
-            # T+1: 同上
+            if pos.is_t0:
+                pos.available_quantity += qty
             pos.avg_cost = pos.total_cost / pos.total_quantity if pos.total_quantity > 0 else 0
 
     def _apply_sell(self, pos: PositionInfo, trade: TradeRecord) -> None:
         qty = trade.quantity
         price = trade.price
         amount = trade.amount or (price * qty)
+        total_fee = self._trade_total_fee(trade)
+        net_amount = amount - total_fee
 
         if self._cost_method == CostMethod.MOVING_AVERAGE:
             cost_sold = pos.avg_cost * qty
-            profit = amount - cost_sold
+            profit = net_amount - cost_sold
             pos.realized_pnl += profit
             pos.total_cost -= cost_sold
             pos.total_quantity -= qty
@@ -172,12 +192,26 @@ class PositionManager:
                 remaining -= take
                 if lot.quantity == 0:
                     pos.fifo_lots.pop(0)
-            profit = amount - cost_basis
+            profit = net_amount - cost_basis
             pos.realized_pnl += profit
             pos.total_quantity -= qty
             pos.available_quantity = max(0, pos.available_quantity - qty)
             pos.total_cost = sum(l.quantity * l.cost_price for l in pos.fifo_lots)
             pos.avg_cost = pos.total_cost / pos.total_quantity if pos.total_quantity > 0 else 0
+
+    def _trade_total_fee(self, trade: TradeRecord) -> float:
+        total_fee = float(getattr(trade, "total_fee", 0.0) or 0.0)
+        if total_fee > 0:
+            return total_fee
+        return float(getattr(trade, "commission", 0.0) or 0.0)
+
+    def _resolve_is_t0(self, stock_code: str, trade_or_position) -> bool:
+        explicit = getattr(trade_or_position, "is_t0", None)
+        if explicit is True:
+            return True
+        if self._fee_schedule:
+            return self._fee_schedule.is_t0_security(stock_code)
+        return bool(explicit)
 
 
 __all__ = ["PositionManager"]

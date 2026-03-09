@@ -10,6 +10,7 @@
         <el-menu-item index="/strategies">🤖 策略</el-menu-item>
         <el-menu-item index="/positions">💼 持仓</el-menu-item>
         <el-menu-item index="/orders">📋 订单</el-menu-item>
+        <el-menu-item index="/trades">💹 成交</el-menu-item>
       </el-menu>
     </el-aside>
     <el-main>
@@ -24,18 +25,70 @@ import { useSystemStore } from './stores/system'
 
 const systemStore = useSystemStore()
 let ws = null
+let heartbeatTimer = null
+let reconnectTimer = null
+let reconnectAttempts = 0
+let isUnmounted = false
 
-onMounted(() => {
-  systemStore.fetchStatus()
-  // WebSocket 连接
-  ws = new WebSocket(`ws://${location.host}/ws/realtime`)
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+}
+
+function startHeartbeat() {
+  stopHeartbeat()
+  heartbeatTimer = setInterval(() => {
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send('ping')
+    }
+  }, 30000)
+}
+
+function scheduleReconnect() {
+  if (isUnmounted || reconnectTimer) return
+  const delay = Math.min(3000 * 2 ** reconnectAttempts, 30000)
+  reconnectAttempts += 1
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    connectWebSocket()
+  }, delay)
+}
+
+function connectWebSocket() {
+  stopHeartbeat()
+  if (ws && ws.readyState === WebSocket.OPEN) return
+
+  const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws'
+  ws = new WebSocket(`${wsProtocol}://${location.host}/ws/realtime`)
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data)
     systemStore.handleWsMessage(msg)
   }
-  ws.onopen = () => ws.send('ping')
-  setInterval(() => ws?.readyState === 1 && ws.send('ping'), 30000)
+  ws.onopen = () => {
+    reconnectAttempts = 0
+    ws.send('ping')
+    startHeartbeat()
+  }
+  ws.onerror = () => ws?.close()
+  ws.onclose = () => {
+    stopHeartbeat()
+    if (!isUnmounted) {
+      scheduleReconnect()
+    }
+  }
+}
+
+onMounted(() => {
+  systemStore.fetchStatus()
+  connectWebSocket()
 })
 
-onUnmounted(() => ws?.close())
+onUnmounted(() => {
+  isUnmounted = true
+  stopHeartbeat()
+  if (reconnectTimer) clearTimeout(reconnectTimer)
+  ws?.close()
+})
 </script>

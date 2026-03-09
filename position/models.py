@@ -20,7 +20,9 @@ class PositionInfo:
     stock_code: str = ""
     total_quantity: int = 0              # 总持仓数量
     available_quantity: int = 0          # 可用数量（T+1 规则下可能低于 total）
+    is_t0: bool = False                  # 是否允许当日回转（T+0）
     avg_cost: float = 0.0               # 移动平均成本价
+     
     total_cost: float = 0.0             # 当前持仓总成本
     current_price: float = 0.0          # 最新价格
     market_value: float = 0.0           # 当前市值
@@ -28,6 +30,10 @@ class PositionInfo:
     unrealized_pnl_ratio: float = 0.0   # 浮动盈亏比例
     realized_pnl: float = 0.0           # 已实现盈亏
     total_commission: float = 0.0       # 累计手续费
+    total_buy_commission: float = 0.0   # 累计买入佣金
+    total_sell_commission: float = 0.0  # 累计卖出佣金
+    total_stamp_tax: float = 0.0        # 累计印花税
+    total_fees: float = 0.0             # 累计总费用
     fifo_lots: List[FifoLot] = field(default_factory=list)  # FIFO 批次列表
     update_time: datetime = field(default_factory=datetime.now)
 
@@ -41,4 +47,20 @@ class PositionInfo:
         self.update_time = datetime.now()
 
 
-__all__ = ["PositionInfo", "FifoLot"]
+__all__ = ["PositionInfo", "FifoLot"] 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

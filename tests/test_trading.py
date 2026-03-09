@@ -67,7 +67,7 @@ class TestBuyLimit(unittest.TestCase):
         order = executor.buy_by_amount("sid1", "TestStrategy", "000001",
                                        price=100.0, amount=50,
                                        remark="insufficient amount")
-        self.assertEqual(order.status, OrderStatus.FAILED)
+        self.assertEqual(order.status, OrderStatus.JUNK)
 
     def test_sell_limit(self):
         """限价卖出"""
@@ -127,16 +127,41 @@ class TestBuyLimit(unittest.TestCase):
         order_mgr.on_trade(order.xt_order_id, trade_info)
         updated = order_mgr.get_order(order.order_uuid)
         self.assertEqual(updated.filled_quantity, 200)
-        self.assertEqual(updated.status, OrderStatus.PARTIALLY_FILLED)
+        self.assertEqual(updated.status, OrderStatus.PART_SUCC)
 
-    def test_order_reject(self):
-        """订单拒绝状态更新"""
+    def test_order_junk(self):
+        """订单废单状态更新"""
         executor, order_mgr = _make_executor()
         order = executor.buy_limit("sid1", "TestStrategy", "000001", 15.0, 100)
         order_mgr._xt_to_uuid[order.xt_order_id] = order.order_uuid
-        order_mgr.update_order_status(order.xt_order_id, OrderStatus.REJECTED)
+        order_mgr.update_order_status(order.xt_order_id, OrderStatus.JUNK)
         updated = order_mgr.get_order(order.order_uuid)
-        self.assertEqual(updated.status, OrderStatus.REJECTED)
+        self.assertEqual(updated.status, OrderStatus.JUNK)
+
+    def test_order_stock_async_uses_positional_strategy_and_remark(self):
+        data_mgr = MagicMock()
+        order_mgr = OrderManager(data_manager=data_mgr)
+        conn_mgr = MagicMock()
+        trader = MagicMock()
+        trader.order_stock_async.return_value = 77
+        conn_mgr.get_trader.return_value = trader
+        conn_mgr.is_connected.return_value = True
+        conn_mgr.account = MagicMock()
+        pos_mgr = MagicMock()
+        pos_mgr.get_position.return_value = MagicMock(available_quantity=1000)
+        executor = TradeExecutor(conn_mgr, order_mgr, pos_mgr)
+
+        with patch('trading.executor._XT_AVAILABLE', True):
+            order = executor.buy_limit('sid1', 'TestStrategy', '600000', 10.5, 100, remark='remark-test')
+
+        trader.order_stock_async.assert_called_once()
+        args = trader.order_stock_async.call_args.args
+        self.assertEqual(args[1], '600000.SH')
+        self.assertEqual(args[2], 23)
+        self.assertEqual(args[3], 100)
+        self.assertEqual(args[5], 10.5)
+        self.assertEqual(args[6], 'TestStrategy')
+        self.assertEqual(args[7], 'remark-test')
 
 
 if __name__ == "__main__":
