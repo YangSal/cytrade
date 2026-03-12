@@ -39,6 +39,7 @@ class StrategyRunner:
                  position_manager=None, data_manager=None,
                  connection_manager=None,
                  strategy_classes: List[Type[BaseStrategy]] = None,
+                 load_previous_state_on_start: bool = True,
                  latency_threshold_sec: float = 10.0,
                  process_threshold_ms: float = 200.0):
         """初始化策略运行器。
@@ -50,6 +51,7 @@ class StrategyRunner:
             data_manager: 数据持久化管理器。
             connection_manager: 交易连接管理器，用于启动前账户校验。
             strategy_classes: 需要托管的策略类列表。
+            load_previous_state_on_start: 当日状态不存在时，是否回退加载上一交易日状态。
             latency_threshold_sec: 行情延迟告警阈值，单位秒。
             process_threshold_ms: 单次策略处理耗时告警阈值，单位毫秒。
         """
@@ -65,6 +67,8 @@ class StrategyRunner:
         self._connection_mgr = connection_manager
         # ``_strategy_classes`` 保存所有可参与自动选股/恢复的策略类。
         self._strategy_classes = strategy_classes or []
+        # ``_load_previous_state_on_start`` 控制是否回退到上一交易日状态文件。
+        self._load_previous_state_on_start = load_previous_state_on_start
         # ``_strategies`` 保存当前正在托管的策略实例列表。
         self._strategies: List[BaseStrategy] = []
         # ``_lock`` 保护策略列表在多线程环境下的增删改查。
@@ -302,7 +306,9 @@ class StrategyRunner:
         """
         if not self._data_mgr:
             return False
-        snapshots = self._data_mgr.load_strategy_state()
+        snapshots = self._data_mgr.load_strategy_state(
+            fallback_previous_market_day=self._load_previous_state_on_start,
+        )
         if not snapshots:
             return False
         with self._lock:

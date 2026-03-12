@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import sqlite3
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from data.manager import DataManager
 from trading.models import Order, TradeRecord
@@ -91,6 +92,19 @@ class TestDataManager(unittest.TestCase):
     def test_load_no_state(self):
         loaded = self.mgr.load_strategy_state()
         self.assertIsNone(loaded)
+
+    def test_load_state_falls_back_to_previous_market_day(self):
+        snaps = [_FakeSnap()]
+        self.mgr.save_strategy_state(snaps, trading_day="20260310")
+
+        with patch("data.manager.minus_one_market_day", return_value="20260310"):
+            loaded = self.mgr.load_strategy_state(
+                trading_day="20260311",
+                fallback_previous_market_day=True,
+            )
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(len(loaded), 1)
 
     def test_query_trades_by_yyyymmdd(self):
         trade = TradeRecord(

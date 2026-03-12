@@ -40,8 +40,8 @@ class BaseStrategy(ABC):
 
     # ---- 子类需覆盖的类属性 -------------------------------------------------
     strategy_name: str = "BaseStrategy"
-    max_positions: int = 1
-    max_total_amount: float = 1_000_000.0
+    max_positions: int = 5
+    max_total_amount: float = 100000.0
 
     # ---- 类级别共享统计（需子类自行维护 thread safety 如有需要） ----
     current_positions: int = 0

@@ -22,6 +22,10 @@ class TestSettingsEnv(unittest.TestCase):
             "LOG_SUMMARY_MODE": "true",
             "POSITION_REPORT_TIMES": "09:40,11:40,15:10",
             "WEB_PORT": "9000",
+            "SESSION_START_TIME": "09:20",
+            "SESSION_EXIT_TIME": "15:10",
+            "SESSION_POLL_INTERVAL_SEC": "20",
+            "LOAD_PREVIOUS_STATE_ON_START": "false",
             "ENABLE_REMOTE_DB": "true",
             "DEFAULT_BUY_FEE_RATE": "0.0002",
             "DEFAULT_SELL_FEE_RATE": "0.0003",
@@ -40,6 +44,10 @@ class TestSettingsEnv(unittest.TestCase):
             self.assertTrue(settings.LOG_SUMMARY_MODE)
             self.assertEqual(settings.POSITION_REPORT_TIMES, ["09:40", "11:40", "15:10"])
             self.assertEqual(settings.WEB_PORT, 9000)
+            self.assertEqual(settings.SESSION_START_TIME, "09:20")
+            self.assertEqual(settings.SESSION_EXIT_TIME, "15:10")
+            self.assertEqual(settings.SESSION_POLL_INTERVAL_SEC, 20)
+            self.assertFalse(settings.LOAD_PREVIOUS_STATE_ON_START)
             self.assertTrue(settings.ENABLE_REMOTE_DB)
             self.assertEqual(settings.REMOTE_DB_CONFIG["host"], "127.0.0.1")
             self.assertEqual(settings.DEFAULT_BUY_FEE_RATE, 0.0002)

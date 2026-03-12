@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 本项目的重要变更都会记录在此文件中。
 
+## [0.3.1] - 2026-03-12
+
+### Added / 新增
+- Added daily session control settings in [config/settings.py](config/settings.py), including `SESSION_START_TIME`, `SESSION_EXIT_TIME`, `SESSION_POLL_INTERVAL_SEC`, and `LOAD_PREVIOUS_STATE_ON_START`.
+	在 [config/settings.py](config/settings.py) 中新增日内会话控制配置，包括 `SESSION_START_TIME`、`SESSION_EXIT_TIME`、`SESSION_POLL_INTERVAL_SEC` 和 `LOAD_PREVIOUS_STATE_ON_START`。
+- Added previous-trading-day state fallback loading in [data/manager.py](data/manager.py) so startup can restore the latest available snapshot when the current trading day has no state file yet.
+	在 [data/manager.py](data/manager.py) 中新增上一交易日状态回退加载能力，使程序在当日还没有状态文件时，可以自动恢复最近可用快照。
+- Added scheduler-oriented runtime entrypoints in [main.py](main.py), including parent-process scheduling, subprocess session launching, and a dedicated managed trading-session lifecycle.
+	在 [main.py](main.py) 中新增面向调度运行的主入口，包括父进程调度、子进程交易会话拉起以及完整的受控交易日会话生命周期。
+- Added regression tests covering daily session control, previous-day snapshot fallback, and scheduler wiring in [tests/test_main.py](tests/test_main.py), [tests/test_data_manager.py](tests/test_data_manager.py), and [tests/test_settings.py](tests/test_settings.py).
+	在 [tests/test_main.py](tests/test_main.py)、[tests/test_data_manager.py](tests/test_data_manager.py) 和 [tests/test_settings.py](tests/test_settings.py) 中新增覆盖日会话控制、上一交易日状态回退和调度器装配的回归测试。
+
+### Changed / 变更
+- Switched the default top-level runtime in [main.py](main.py) to a parent-process scheduler model based on `BlockingScheduler`, where each trading task launches in an isolated subprocess via `ProcessPoolExecutor`.
+	将 [main.py](main.py) 的默认顶层运行模式切换为基于 `BlockingScheduler` 的父进程调度模型，并通过 `ProcessPoolExecutor` 为每次交易任务创建独立子进程。
+- Updated the managed session shutdown flow in [main.py](main.py) so strategy runner, watchdog, data subscription, QMT connection, and data resources are closed together when the session ends.
+	更新 [main.py](main.py) 中的受控会话关闭流程，使策略运行器、看门狗、行情订阅、QMT 连接和数据资源在会话结束时统一关闭。
+- Updated [strategy/runner.py](strategy/runner.py) to honor configurable previous-day state fallback during startup restore.
+	更新 [strategy/runner.py](strategy/runner.py)，使其在启动恢复状态时支持可配置的上一交易日快照回退逻辑。
+- Expanded runtime documentation in [main.py](main.py) to explain the two-layer architecture of parent-process scheduling and subprocess trading sessions in detail.
+	扩展 [main.py](main.py) 中的运行说明，详细解释“父进程调度 + 子进程交易会话”的两层运行架构。
+
+### Verified / 验证
+- Full Python test suite passes: `94 passed`.
+	Python 全量测试通过：`94 passed`。
+
 ## [0.3.0] - 2026-03-10
 
 ### Added / 新增

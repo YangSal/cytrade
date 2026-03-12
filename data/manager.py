@@ -13,6 +13,7 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from core.trading_calendar import minus_one_market_day
 from monitor.logger import get_logger
 
 logger = get_logger("system")
@@ -346,13 +347,17 @@ class DataManager:
 
     # ------------------------------------------------------------------ Pickle 状态
 
-    def save_strategy_state(self, snapshots: list) -> None:
+    def save_strategy_state(self, snapshots: list, trading_day: Optional[str] = None) -> None:
         """将策略快照列表序列化到 pickle 文件。
 
         说明：该状态文件仅用于本项目内部的跨交易日恢复，
         不保证跨大版本代码结构变更后的兼容性。
+
+        Args:
+            snapshots: 需要保存的策略快照列表。
+            trading_day: 目标交易日，格式为 ``YYYYMMDD``；为空时使用今日日期。
         """
-        path = self._state_file()
+        path = self._state_file(trading_day)
         try:
             with open(path, "wb") as f:
                 pickle.dump(snapshots, f)
@@ -360,25 +365,64 @@ class DataManager:
         except Exception as e:
             logger.error("DataManager: 保存策略状态失败: %s", e, exc_info=True)
 
-    def load_strategy_state(self) -> Optional[list]:
-        """加载策略快照列表，无文件时返回 ``None``。"""
-        path = self._state_file()
-        if not os.path.exists(path):
-            return None
-        try:
-            with open(path, "rb") as f:
-                snapshots = pickle.load(f)
-            logger.info("DataManager: 加载策略状态 ← %s (%d 条)", path, len(snapshots))
-            return snapshots
-        except Exception as e:
-            logger.error("DataManager: 加载策略状态失败: %s", e, exc_info=True)
-            return None
+    def load_strategy_state(self, trading_day: Optional[str] = None,
+                            fallback_previous_market_day: bool = True) -> Optional[list]:
+        """加载策略快照列表。
 
-    def clear_strategy_state(self) -> None:
-        """删除当日策略状态快照文件。"""
-        path = self._state_file()
+        默认会优先尝试加载“今日快照”；如果今日文件不存在，则继续回退到上一个
+        交易日的快照文件。这能满足以下两种常见场景：
+
+        1. 盘中异常重启：优先恢复当日最新状态。
+        2. 次日开盘启动：自动恢复上一交易日收盘后保存的状态。
+
+        Args:
+            trading_day: 目标交易日，格式为 ``YYYYMMDD``；为空时使用今日日期。
+            fallback_previous_market_day: 当目标日期文件不存在时，是否继续尝试上一交易日。
+
+        Returns:
+            Optional[list]: 加载到的快照列表；若未找到可用状态文件则返回 ``None``。
+        """
+        target_day = trading_day or datetime.now().strftime("%Y%m%d")
+        candidate_days = [target_day]
+
+        if fallback_previous_market_day:
+            try:
+                previous_day = minus_one_market_day(target_day)
+                if previous_day not in candidate_days:
+                    candidate_days.append(previous_day)
+            except Exception as exc:
+                logger.warning("DataManager: 计算上一交易日失败，跳过回退加载: %s", exc)
+
+        for day in candidate_days:
+            path = self._state_file(day)
+            if not os.path.exists(path):
+                continue
+            try:
+                with open(path, "rb") as f:
+                    snapshots = pickle.load(f)
+                logger.info("DataManager: 加载策略状态 ← %s (%d 条)", path, len(snapshots))
+                return snapshots
+            except Exception as e:
+                logger.error("DataManager: 加载策略状态失败: %s", e, exc_info=True)
+                return None
+
+        return None
+
+    def clear_strategy_state(self, trading_day: Optional[str] = None) -> None:
+        """删除指定交易日的策略状态快照文件。"""
+        path = self._state_file(trading_day)
         if os.path.exists(path):
             os.remove(path)
+
+    def close(self) -> None:
+        """释放数据管理器持有的外部资源。"""
+        if self._pg_conn is not None:
+            try:
+                self._pg_conn.close()
+            except Exception as exc:
+                logger.warning("DataManager: 关闭 PostgreSQL 连接时异常: %s", exc)
+            finally:
+                self._pg_conn = None
 
     # ------------------------------------------------------------------ 远程 PostgreSQL
 
@@ -435,11 +479,10 @@ class DataManager:
                 logger.error("DataManager 查询失败: %s | %s", sql[:80], e, exc_info=True)
                 return []
 
-    def _state_file(self) -> str:
-        """返回今日策略状态快照文件路径。"""
-        from datetime import date
-        today = date.today().strftime("%Y%m%d")
-        return os.path.join(self._state_dir, f"strategy_state_{today}.pkl")
+    def _state_file(self, trading_day: Optional[str] = None) -> str:
+        """返回指定交易日的策略状态快照文件路径。"""
+        target_day = str(trading_day or datetime.now().strftime("%Y%m%d"))
+        return os.path.join(self._state_dir, f"strategy_state_{target_day}.pkl")
 
     def _connect_pg(self) -> None:
         """尝试连接远程 PostgreSQL。"""
