@@ -48,6 +48,7 @@ def _make_strategy(stop_loss=0.0, take_profit=0.0):
                      remark=remark)
 
     executor.buy_by_amount.side_effect = fake_buy_by_amount
+    executor.buy_limit.return_value = MagicMock(order_uuid="uuid-buy")
     executor.close_position.side_effect = fake_close
     executor.sell_limit.return_value = MagicMock(order_uuid="uuid-sell")
 
@@ -100,6 +101,28 @@ class TestGridStrategyUnit(unittest.TestCase):
         s._last_price = level - 0.1
         s.process_tick(_tick("000001", level + 0.01))
         executor.sell_limit.assert_called()
+
+    def test_fixed_grid_quantity_uses_one_lot(self):
+        """配置固定网格股数时，买卖均按指定手数执行。"""
+        s, executor, pos_mgr = _make_strategy()
+        s.config.params["per_grid_quantity"] = 100
+        s._per_grid_quantity = 100
+
+        s.process_tick(_tick("000001", 10.0))
+
+        buy_level = s._grid_levels[2]
+        s._last_price = buy_level + 0.1
+        s.process_tick(_tick("000001", buy_level - 0.01))
+        executor.buy_limit.assert_called()
+        buy_args, _ = executor.buy_limit.call_args
+        self.assertEqual(buy_args[4], 100)
+
+        pos_mgr.get_position.return_value = MagicMock(total_quantity=1000, available_quantity=1000)
+        sell_level = s._grid_levels[3]
+        s._last_price = sell_level - 0.1
+        s.process_tick(_tick("000001", sell_level + 0.01))
+        sell_args, _ = executor.sell_limit.call_args
+        self.assertEqual(sell_args[4], 100)
 
     def test_stop_loss_triggers_close(self):
         """止损触发平仓"""

@@ -161,6 +161,12 @@ class Settings:
     WEB_HOST: str = _env_str("WEB_HOST", "0.0.0.0")
     WEB_PORT: int = _env_int("WEB_PORT", 8080)
 
+    # ---- 日内会话控制 ----
+    SESSION_START_TIME: str = _env_str("SESSION_START_TIME", "09:25")
+    SESSION_EXIT_TIME: str = _env_str("SESSION_EXIT_TIME", "15:05")
+    SESSION_POLL_INTERVAL_SEC: int = _env_int("SESSION_POLL_INTERVAL_SEC", 15)
+    LOAD_PREVIOUS_STATE_ON_START: bool = _env_bool("LOAD_PREVIOUS_STATE_ON_START", True)
+
     # ---- 交易时间 ----
     MORNING_OPEN: str = _env_str("MORNING_OPEN", "09:30")
     MORNING_CLOSE: str = _env_str("MORNING_CLOSE", "11:30")

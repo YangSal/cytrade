@@ -11,6 +11,7 @@ cytrade 是一个基于 [xtquant](https://dict.thinktrader.net/nativeApi/start_n
 - Watchdog 监控告警
 - FastAPI + Vue Web 控制台
 - 一个策略对象维护一个标的，实现标的管理解耦。
+- 长期调度与日内交易会话完全分离，便于稳定运行与分层控制。
 - 附加两个示例策略，帮助理解程序逻辑。
 
 当前仓库适合以下用途：
@@ -36,10 +37,63 @@ cytrade 是一个基于 [xtquant](https://dict.thinktrader.net/nativeApi/start_n
 | 持仓管理 | 移动平均成本、FIFO、实时浮盈/实盈统计 |
 | 费率管理 | 费率表匹配、佣金/印花税追踪、T+0/T+1 可用仓位 |
 | 策略框架 | `BaseStrategy`、信号与交易分离、风控前置 |
-| 策略运行 | 选股、行情分发、调度、快照恢复、停止归档 |
+| 策略运行 | 选股、行情分发、调度、快照恢复、停止归档、长期调度与日内会话分离 |
 | 数据持久化 | SQLite、本地状态恢复、可选 PostgreSQL 同步 |
 | 监控告警 | 心跳、连接状态、数据超时、CPU/内存、钉钉通知 |
 | Web 控制台 | FastAPI REST、WebSocket、Vue 3 前端 |
+
+---
+
+## 界面截图
+
+以下截图来自当前项目的 Web 控制台，图片已压缩后存放在 `docs/screenshots/`：
+
+Web 控制台当前主要覆盖以下能力：
+
+- 系统运行状态查看
+- 策略列表与状态控制
+- 持仓与盈亏明细查看
+- 订单状态跟踪与撤单
+- 成交记录与成交时间展示
+
+<table>
+    <tr>
+        <td width="50%" align="center">
+            <strong>首页 / 系统总览</strong><br/>
+            <img src="docs/screenshots/1.png" alt="首页 / 系统总览" width="92%" />
+            <br/>
+            展示系统状态、运行概览与主要监控信息。
+        </td>
+        <td width="50%" align="center">
+            <strong>策略管理页面</strong><br/>
+            <img src="docs/screenshots/2.png" alt="策略管理页面" width="92%" />
+            <br/>
+            查看策略状态，并执行暂停、恢复、平仓等操作。
+        </td>
+    </tr>
+    <tr>
+        <td width="50%" align="center">
+            <strong>持仓页面</strong><br/>
+            <img src="docs/screenshots/3.png" alt="持仓页面" width="92%" />
+            <br/>
+            展示策略级持仓、可用数量、浮盈亏与手续费汇总。
+        </td>
+        <td width="50%" align="center">
+            <strong>订单页面</strong><br/>
+            <img src="docs/screenshots/4.png" alt="订单页面" width="92%" />
+            <br/>
+            查看订单状态流转、成交均价、费用与备注信息。
+        </td>
+    </tr>
+    <tr>
+        <td colspan="2" align="center">
+            <strong>成交页面</strong><br/>
+            <img src="docs/screenshots/5.png" alt="成交页面" width="92%" />
+            <br/>
+            展示成交记录、方向、数量、价格和格式化后的成交时间。
+        </td>
+    </tr>
+</table>
 
 ---
 
@@ -664,6 +718,55 @@ python -m pytest tests/ -v
 
 说明：策略状态持久化当前采用 `pickle`，用于项目内部跨交易日恢复；
 不保证跨大版本结构变更后的兼容性。
+
+### 三标的模拟盘烟测脚本
+
+仓库内提供了一个面向 QMT 模拟盘的三标的联调脚本：
+
+- [scripts/smoke_test_qmt_three_symbols.py](scripts/smoke_test_qmt_three_symbols.py)
+
+当前默认测试标的：
+
+- `513050`
+- `513180`
+- `159981`
+
+脚本当前行为：
+
+- 启动前自动重置运行期策略状态
+- 每个策略先建仓 `100` 手
+- 每次网格交易按 `1` 手执行
+- 自动拉起后端与前端联通检查
+- 自动验证策略页 `暂停 / 恢复` 按钮链路
+- 默认持续运行，直到手动 `Ctrl+C` 停止
+
+默认运行方式：
+
+```bash
+python scripts/smoke_test_qmt_three_symbols.py
+```
+
+如需临时恢复“自动退出”模式，可设置：
+
+```bash
+CYTRADE_SMOKETEST_MANUAL_STOP_ONLY=0
+```
+
+脚本支持的常用环境变量：
+
+| 变量名 | 说明 |
+|---|---|
+| `CYTRADE_SMOKETEST_MANUAL_STOP_ONLY` | `1` 表示仅手动结束，`0` 表示按脚本流程自动退出 |
+| `CYTRADE_SMOKETEST_INITIAL_LOTS` | 每个策略初始建仓手数 |
+| `CYTRADE_SMOKETEST_GRID_LOTS` | 每次网格交易手数 |
+| `CYTRADE_SMOKETEST_KEEPALIVE` | 自动退出模式下的额外保活秒数 |
+
+适用场景：
+
+- 前后端联调
+- 模拟盘链路验证
+- 策略页按钮回归测试
+- 日内长时间观察策略运行状态
 
 ---
 

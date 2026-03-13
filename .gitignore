@@ -36,3 +36,43 @@ web/frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local runtime artifacts
+logs/
+saved_states/
+data/db/*.db
+data/db/*.sqlite
+data/db/*.sqlite3
+dist/
+build/
+*.egg-info/
+*.log
+*.pid
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+.pypirc
+
+# IDE
+.vscode/
+.idea/
+
+# Frontend
+web/frontend/node_modules/
+web/frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+

@@ -144,6 +144,7 @@ class WebSocketManager:
             "stamp_tax": getattr(trade, "stamp_tax", 0.0),
             "total_fee": getattr(trade, "total_fee", getattr(trade, "commission", 0.0)),
             "is_t0": bool(getattr(trade, "is_t0", False)),
+            "trade_time": getattr(trade, "trade_time", datetime.now()).isoformat(),
             "time": datetime.now().isoformat(),
         })
 

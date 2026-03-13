@@ -17,7 +17,9 @@
       <el-table-column prop="trade_id" label="成交编号" width="120" />
       <el-table-column prop="xt_order_id" label="订单号" width="100" />
       <el-table-column prop="order_sysid" label="合同编号" width="140" />
-      <el-table-column prop="traded_time" label="成交时间" width="150" />
+      <el-table-column label="成交时间" width="170">
+        <template #default="scope">{{ normalizeTradeTime(scope.row) }}</template>
+      </el-table-column>
       <el-table-column prop="order_remark" label="备注" />
     </el-table>
   </div>
@@ -51,6 +53,33 @@ async function load() {
 // 成交金额和费用保留两位小数，成交价保留三位小数。
 const fmt2 = (_, __, v) => typeof v === 'number' ? v.toFixed(2) : v
 const fmt3 = (_, __, v) => typeof v === 'number' ? v.toFixed(3) : v
+
+function normalizeTradeTime(row) {
+  const text = row?.trade_time
+  if (typeof text === 'string' && text.trim()) {
+    return text.replace('T', ' ').slice(0, 19)
+  }
+
+  const raw = row?.traded_time
+  if (!raw) return '-'
+
+  const digits = String(raw).replace(/\D/g, '')
+  if (digits.length === 10 || digits.length === 13) {
+    const ts = Number(digits.length === 13 ? digits.slice(0, 13) : digits)
+    const date = new Date(digits.length === 13 ? ts : ts * 1000)
+    if (!Number.isNaN(date.getTime())) {
+      const pad = (value) => String(value).padStart(2, '0')
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    }
+  }
+  if (digits.length >= 14) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)} ${digits.slice(8, 10)}:${digits.slice(10, 12)}:${digits.slice(12, 14)}`
+  }
+  if (digits.length >= 8) {
+    return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`
+  }
+  return String(raw)
+}
 
 onMounted(() => {
   // 首次加载后定时轮询，保持页面数据新鲜。

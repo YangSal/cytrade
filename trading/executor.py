@@ -154,6 +154,7 @@ class TradeExecutor:
                        stock_code: str, remark: str = "") -> Order:
         """卖出该策略当前全部可用持仓。"""
         available = 0
+        pos = None
         if self._position_mgr:
             pos = self._position_mgr.get_position(strategy_id)
             if pos:
@@ -163,6 +164,22 @@ class TradeExecutor:
                            strategy_id[:8], stock_code)
             return self._failed_order(strategy_id, strategy_name, stock_code,
                                       OrderDirection.SELL, "无可用持仓")
+        if str(stock_code).startswith("5") and pos:
+            ref_price = float(pos.current_price or pos.avg_cost or 0.0)
+            if ref_price > 0:
+                limit_price = max(0.001, round(ref_price * 0.995, 3))
+                logger.info(
+                    "close_position: 使用限价平仓 strategy=%s code=%s price=%.3f qty=%d",
+                    strategy_id[:8], stock_code, limit_price, available,
+                )
+                return self.sell_limit(
+                    strategy_id,
+                    strategy_name,
+                    stock_code,
+                    limit_price,
+                    available,
+                    remark=remark or f"平仓 {stock_code}",
+                )
         return self.sell_market(strategy_id, strategy_name, stock_code, available,
                                 remark=remark or f"平仓 {stock_code}")
 
@@ -233,9 +250,7 @@ class TradeExecutor:
             price_type = (xtconstant.FIX_PRICE
                           if order.order_type in (OrderType.LIMIT, OrderType.BY_AMOUNT,
                                                   OrderType.BY_QUANTITY)
-                          else (xtconstant.MARKET_SH_INSTANT
-                                if order.stock_code.startswith("6")
-                                else xtconstant.MARKET_SZ_CONVERT))
+                          else self._resolve_market_price_type(order.stock_code))
 
             seq = trader.order_stock_async(
                 account,
@@ -265,6 +280,31 @@ class TradeExecutor:
         """按金额计算可买数量，并向下取整到一手（100 股）。"""
         lots = math.floor(amount / price / TradeExecutor._LOT_SIZE)
         return lots * TradeExecutor._LOT_SIZE
+
+    @staticmethod
+    def _resolve_market_price_type(stock_code: str) -> int:
+        """兼容不同 xtquant 版本的市价单常量命名。"""
+        if str(stock_code).startswith("6"):
+            candidates = (
+                "MARKET_SH_INSTANT",
+                "MARKET_SH_CONVERT_5_LIMIT",
+                "MARKET_CONVERT_5",
+                "MARKET_PEER_PRICE_FIRST",
+            )
+        else:
+            candidates = (
+                "MARKET_SZ_CONVERT",
+                "MARKET_SZ_INSTBUSI_RESTCANCEL",
+                "MARKET_CONVERT_5",
+                "MARKET_PEER_PRICE_FIRST",
+            )
+
+        for name in candidates:
+            value = getattr(xtconstant, name, None)
+            if value is not None:
+                return value
+
+        return xtconstant.FIX_PRICE
 
     @staticmethod
     def _code_to_xt(code: str) -> str:

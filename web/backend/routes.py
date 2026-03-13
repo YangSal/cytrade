@@ -36,6 +36,37 @@ _connection_manager = None
 _trade_executor = None
 _ws_manager = None
 
+
+def _format_trade_time(traded_time: int | str | None, trade_time: str | None) -> str:
+    """把成交时间统一格式化为前端可直接展示的字符串。"""
+    digits = "".join(ch for ch in str(traded_time or "") if ch.isdigit())
+    if len(digits) in (10, 13):
+        try:
+            ts = int(digits)
+            if len(digits) == 13:
+                ts = ts / 1000
+            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError, OSError):
+            pass
+    if len(digits) >= 14:
+        return (
+            f"{digits[:4]}-{digits[4:6]}-{digits[6:8]} "
+            f"{digits[8:10]}:{digits[10:12]}:{digits[12:14]}"
+        )
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+
+    text = str(trade_time or "").strip()
+    if not text:
+        return ""
+    if "T" in text:
+        return text.replace("T", " ")[:19]
+
+    date_digits = "".join(ch for ch in text if ch.isdigit())
+    if len(date_digits) >= 8:
+        return f"{date_digits[:4]}-{date_digits[4:6]}-{date_digits[6:8]}"
+    return text
+
 if _FASTAPI:
     router = APIRouter()
 else:
@@ -304,6 +335,7 @@ if _FASTAPI and router is not None:
         result = []
         for t in records:
             direction = str(t.get("direction", "") or "")
+            traded_time = int(t.get("traded_time", 0) or 0)
             result.append(TradeInfo(
                 trade_id=str(t.get("trade_id", "") or ""),
                 xt_order_id=int(t.get("xt_order_id", 0) or 0),
@@ -314,7 +346,7 @@ if _FASTAPI and router is not None:
                 account_type=int(t.get("account_type", 0) or 0),
                 account_id=str(t.get("account_id", "") or ""),
                 order_type=int(t.get("order_type", 0) or 0),
-                traded_time=int(t.get("traded_time", 0) or 0),
+                traded_time=traded_time,
                 order_sysid=str(t.get("order_sysid", "") or ""),
                 order_remark=str(t.get("order_remark", "") or ""),
                 xt_direction=int(t.get("xt_direction", 0) or 0),
@@ -330,7 +362,7 @@ if _FASTAPI and router is not None:
                 stamp_tax=float(t.get("stamp_tax", 0) or 0),
                 total_fee=float(t.get("total_fee", t.get("commission", 0)) or 0),
                 is_t0=bool(t.get("is_t0", 0)),
-                trade_time=str(t.get("trade_time", "") or ""),
+                trade_time=_format_trade_time(traded_time, str(t.get("trade_time", "") or "")),
             ))
         return result
 

@@ -7,6 +7,7 @@
 """
 import threading
 import time
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
@@ -241,10 +242,13 @@ class DataSubscriptionManager:
             return SubscriptionPeriod.TICK.value
 
     @staticmethod
-    def _parse_tick(code: str, data: dict, recv_time: datetime) -> TickData:
+    def _parse_tick(code: str, data: dict | list, recv_time: datetime) -> TickData:
         """把 xtquant 原始数据解析成统一 ``TickData`` 对象。"""
+        data = DataSubscriptionManager._normalize_tick_payload(code, data)
+
         # time 字段可能是时间戳（ms）或 datetime
-        raw_time = data.get("time") or data.get("sysTime")
+        raw_time = (DataSubscriptionManager._extract_scalar(data.get("time"))
+                    or DataSubscriptionManager._extract_scalar(data.get("sysTime")))
         data_time = recv_time
         latency_ms = 0.0
         if raw_time:
@@ -259,13 +263,13 @@ class DataSubscriptionManager:
 
         def _get(key, default=0.0):
             """统一处理字段缺失，避免到处写 ``None`` 判空。"""
-            v = data.get(key)
+            v = DataSubscriptionManager._extract_scalar(data.get(key))
             return v if v is not None else default
 
-        bids_p = list(data.get("bidPrice", []))[:5]
-        bids_v = list(data.get("bidVol", []))[:5]
-        asks_p = list(data.get("askPrice", []))[:5]
-        asks_v = list(data.get("askVol", []))[:5]
+        bids_p = DataSubscriptionManager._extract_book_values(data.get("bidPrice"))
+        bids_v = DataSubscriptionManager._extract_book_values(data.get("bidVol"), cast_type=int)
+        asks_p = DataSubscriptionManager._extract_book_values(data.get("askPrice"))
+        asks_v = DataSubscriptionManager._extract_book_values(data.get("askVol"), cast_type=int)
 
         return TickData(
             stock_code=code,
@@ -284,6 +288,79 @@ class DataSubscriptionManager:
             recv_time=recv_time,
             latency_ms=latency_ms,
         )
+
+    @staticmethod
+    def _normalize_tick_payload(code: str, data: dict | list) -> dict:
+        """兼容 xtquant 可能返回的多种 tick 结构。"""
+        if isinstance(data, dict):
+            return data
+
+        if isinstance(data, list):
+            for item in reversed(data):
+                if isinstance(item, dict):
+                    return item
+            logger.warning("DataSubscription: %s 收到无法解析的列表行情结构", code)
+            return {}
+
+        logger.warning("DataSubscription: %s 收到未知行情结构 %s", code, type(data).__name__)
+        return {}
+
+    @staticmethod
+    def _extract_scalar(value, default=None):
+        """从 xtquant 字段中提取单值，兼容历史列表/数组格式。"""
+        if value is None:
+            return default
+
+        if hasattr(value, "tolist") and not isinstance(value, (str, bytes, bytearray)):
+            try:
+                value = value.tolist()
+            except Exception:
+                pass
+
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            if not value:
+                return default
+            last_value = value[-1]
+            if isinstance(last_value, Sequence) and not isinstance(last_value, (str, bytes, bytearray)):
+                return DataSubscriptionManager._extract_scalar(last_value, default)
+            return last_value if last_value is not None else default
+
+        return value
+
+    @staticmethod
+    def _extract_book_values(value, cast_type=float) -> list:
+        """提取五档盘口数据，兼容嵌套列表/数组格式。"""
+        if value is None:
+            return []
+
+        if hasattr(value, "tolist") and not isinstance(value, (str, bytes, bytearray)):
+            try:
+                value = value.tolist()
+            except Exception:
+                pass
+
+        if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+            scalar = DataSubscriptionManager._extract_scalar(value)
+            if scalar is None:
+                return []
+            try:
+                return [cast_type(scalar)]
+            except (TypeError, ValueError):
+                return []
+
+        if value and isinstance(value[0], Sequence) and not isinstance(value[0], (str, bytes, bytearray)):
+            value = value[-1]
+
+        result = []
+        for item in list(value)[:5]:
+            scalar = DataSubscriptionManager._extract_scalar(item)
+            if scalar is None:
+                continue
+            try:
+                result.append(cast_type(scalar))
+            except (TypeError, ValueError):
+                continue
+        return result
 
     @staticmethod
     def _to_xt(code: str) -> str:

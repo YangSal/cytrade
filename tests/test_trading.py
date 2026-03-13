@@ -101,6 +101,28 @@ class TestBuyLimit(unittest.TestCase):
         result = executor.cancel_order(order.order_uuid, remark="test cancel")
         self.assertTrue(result)
 
+    def test_resolve_market_price_type_uses_available_fallback_for_sz(self):
+        with patch("trading.executor.xtconstant") as fake_xtconstant:
+            fake_xtconstant.FIX_PRICE = 11
+            fake_xtconstant.MARKET_SZ_CONVERT = None
+            fake_xtconstant.MARKET_SZ_INSTBUSI_RESTCANCEL = 47
+            fake_xtconstant.MARKET_CONVERT_5 = 24
+
+            value = TradeExecutor._resolve_market_price_type("159981")
+
+        self.assertEqual(value, 47)
+
+    def test_resolve_market_price_type_uses_available_fallback_for_sh(self):
+        with patch("trading.executor.xtconstant") as fake_xtconstant:
+            fake_xtconstant.FIX_PRICE = 11
+            fake_xtconstant.MARKET_SH_INSTANT = None
+            fake_xtconstant.MARKET_SH_CONVERT_5_LIMIT = 42
+            fake_xtconstant.MARKET_CONVERT_5 = 24
+
+            value = TradeExecutor._resolve_market_price_type("600000")
+
+        self.assertEqual(value, 42)
+
     def test_order_tracking(self):
         """订单追踪 — uuid 查询"""
         executor, order_mgr = _make_executor()

@@ -42,6 +42,7 @@ class TestGridStrategy(BaseStrategy):
         self._grid_low: float = float(p.get("grid_low", 0.0))
         self._grid_high: float = float(p.get("grid_high", 0.0))
         self._per_grid_amount: float = float(p.get("per_grid_amount", 10000.0))
+        self._per_grid_quantity: int = max(0, int(p.get("per_grid_quantity", 0) or 0))
 
         self._grid_levels: List[float] = []
         self._last_price: float = 0.0
@@ -69,9 +70,12 @@ class TestGridStrategy(BaseStrategy):
                     signal = {
                         "action": "BUY",
                         "price": price,
-                        "amount": self._per_grid_amount,
                         "remark": f"网格买入-第{i}格 price={price:.3f}"
                     }
+                    if self._per_grid_quantity > 0:
+                        signal["quantity"] = self._normalize_grid_quantity(self._per_grid_quantity)
+                    else:
+                        signal["amount"] = self._per_grid_amount
                     logger.debug("TestGrid: 触发买入信号 grid=%d price=%.3f", i, price)
                     break
             # 上穿 level：卖出信号
@@ -79,8 +83,8 @@ class TestGridStrategy(BaseStrategy):
                 pos = (self._position_mgr.get_position(self.strategy_id)
                        if self._position_mgr else None)
                 if pos and pos.available_quantity > 0:
-                    qty = min(int(self._per_grid_amount / price / 100) * 100,
-                              pos.available_quantity)
+                    grid_qty = self._resolve_sell_quantity(price)
+                    qty = min(grid_qty, pos.available_quantity)
                     if qty > 0:
                         signal = {
                             "action": "SELL",
@@ -131,6 +135,15 @@ class TestGridStrategy(BaseStrategy):
         ]
         logger.info("TestGrid[%s] 网格初始化 low=%.3f high=%.3f count=%d",
                     self.strategy_id[:8], low, high, self._grid_count)
+
+    def _resolve_sell_quantity(self, price: float) -> int:
+        if self._per_grid_quantity > 0:
+            return self._normalize_grid_quantity(self._per_grid_quantity)
+        return self._normalize_grid_quantity(int(self._per_grid_amount / price))
+
+    @staticmethod
+    def _normalize_grid_quantity(quantity: int) -> int:
+        return max(0, (int(quantity) // 100) * 100)
 
 
 __all__ = ["TestGridStrategy"]
